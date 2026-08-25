@@ -414,3 +414,48 @@ VERDICT: project A-prime is FEASIBLE on this hardware. The 6 GB card was the
 risk I was most worried about and it turned out to have ~2 GiB to spare at 1M
 gaussians. The real risk was the Windows toolchain, which cost three upstream
 bugs to get through -- all now documented with patches.
+
+================================================================================
+STAGE 3 - BROWSER PATH  [COMPLETE - PASS on desktop]
+================================================================================
+Run after the fact, once the earlier stop was lifted.
+
+[3.5] Setup. No Chrome on this machine, but Playwright's own chromium-1208 was
+  already cached at %LOCALAPPDATA%\ms-playwright. Drove it with playwright-core
+  (small npm package, no browser download) rather than installing Chrome.
+  Served _webviewer/ with python -m http.server on 127.0.0.1:8123.
+  Viewer URL: index.html?url=http://127.0.0.1:8123/truck.splat
+  (the viewer resolves ?url= against a HuggingFace CDN base, so an ABSOLUTE
+   url is required to point it at localhost)
+
+[3.6] MEASURED (desktop, headed chromium, 1280x800):
+  loaded              yes, at t=1s
+  load wall clock     1071 ms for the 30 MiB .splat over localhost
+  frame rate          60 fps (viewer counter) / 60.5 fps (raF count over 3 s)
+                      -> vsync capped, i.e. NOT struggling
+  GL renderer         ANGLE (NVIDIA, NVIDIA GeForce RTX 4050 Laptop GPU,
+                      Direct3D11 vs_5_0 ps_5_0, D3D11)  -> real GPU, not
+                      SwiftShader software fallback
+  JS heap             39.5 MiB
+  console errors      one only: 404 on /favicon.ico. Confirmed benign against
+                      the server log; /truck.splat served 200.
+
+[3.7] Screenshot saved to _browser_test.png. VISUALLY CONFIRMED: the truck
+  scene renders correctly - the teal pickup, building, umbrellas and tables are
+  all present and recognisable. The blurry foreground is the VIEWER'S DEFAULT
+  CAMERA POSE, which is hardcoded for its own demo scene and starts the camera
+  partly inside our geometry. Cosmetic, not a rendering fault.
+
+[3.8] STILL NOT TESTED: an actual phone. Desktop success de-risks it a lot
+  (30 MiB payload, 39.5 MiB heap, vsync-capped on a laptop GPU) but a phone has
+  less bandwidth, less memory and a weaker GPU. Do not claim phone support
+  until someone opens it on a phone.
+
+STAGE 3 VERDICT: PASS on desktop. Phone remains an assumption.
+
+================================================================================
+REVISED CONCLUSION
+================================================================================
+All four original criteria PASS, and the browser path now PASSES on desktop.
+The only remaining untested claims are (a) phones and (b) how much headroom is
+left above gsplat's own PngCompression baseline, which was never measured.

@@ -15,7 +15,8 @@ Both yes. Ran 2026-08-25 on Windows 11, RTX 4050 Laptop 6 GB.
 | Scene trains end to end | under 45 min | 7.57 min | pass |
 | Peak VRAM | under ~5 GiB usable | 2.89 GiB | pass |
 | Output .ply large enough to be worth compressing | over 100 MB | 225 MiB | pass |
-| Renders in a browser or on a phone | must work | not tested | open |
+| Renders in a browser | must work | 60 fps, 1.07 s load | pass, desktop only |
+| Renders on a phone | must work | not tested | open |
 
 The 6 GB card was the risk I expected to fail. It had about 2 GiB to spare. The real difficulty was
 the Windows toolchain, which needed three upstream bugs worked around.
@@ -58,6 +59,29 @@ Converting to `.splat`, the format most web viewers use, gives 30 MiB, a 7.38x r
 there by dropping all 45 `f_rest_*` coefficients and keeping only the DC term, so it discards every
 view-dependent appearance term. The common web format is already lossy in appearance, not just
 precision.
+
+## Browser rendering
+
+The 30 MiB `.splat` was served locally and loaded in antimatter15's WebGL viewer, driven through
+Playwright's cached chromium.
+
+```
+load             1071 ms for 30 MiB over localhost
+frame rate       60 fps by the viewer's counter, 60.5 by rAF count over 3 s
+                 vsync capped, so it is not struggling
+GL renderer      ANGLE (NVIDIA, RTX 4050 Laptop GPU, Direct3D11), a real GPU
+                 rather than a SwiftShader software fallback
+JS heap          39.5 MiB
+console          one 404 on favicon.ico, confirmed benign against the server log
+```
+
+`_browser_test.png` is the screenshot. The scene renders correctly: the pickup, building, umbrellas
+and tables are all recognisable. The blurred foreground is the viewer's default camera pose, which
+is hardcoded for its own demo scene and starts the camera partly inside our geometry. Cosmetic.
+
+A phone has not been tested. Desktop success makes it more likely, given the modest payload and
+heap, but a phone has less bandwidth, less memory and a weaker GPU, so it stays an assumption until
+someone opens it on one.
 
 One thing to weigh before designing anything: `gsplat.compression.PngCompression` already exists in
 the library, exposed as `--compression png`. Splat compression is not untouched ground. That makes
@@ -152,10 +176,7 @@ Two things about the data that look like bugs and are not:
 
 ## Not tested
 
-- The browser and phone path, which is half the point of the project it was meant to de-risk. A
-  `.splat` was produced and a viewer cloned into `_webviewer/`, but it was never loaded in a browser
-  and never opened on a phone. Rendering 1M Gaussians at 60 fps on a mid-range phone is an
-  assumption at this point.
+- Phones. Desktop rendering works, but nobody has opened this on a phone.
 - gsplat's `PngCompression` baseline. Without that number there is no way to know how much headroom
   is left.
 - Higher resolutions or more than 1M Gaussians, though the spare VRAM suggests there is room.
@@ -169,6 +190,7 @@ Two things about the data that look like bugs and are not:
 | `_ply_to_splat.py` | Vectorised .ply to .splat. The upstream converter loops per vertex and is unusable at 1M. |
 | `_get_data.py` | Downloads and prepares the truck scene. |
 | `_vram_sampler.py` | Samples nvidia-smi, so it measures the whole board rather than just PyTorch's allocator. |
+| `_browser_test.png` | Screenshot of the scene rendering in a browser at 60 fps. |
 | `*.ORIGINAL.bak` | Unmodified copies of the two patched library files. |
 
 Not in git: `.venv/`, `data/`, `results/`, `_gsplat_repo/`, `_webviewer/`, build logs. About 15 GB
@@ -177,11 +199,12 @@ files inside `.venv`, which go with it.
 
 ## Where this leaves things
 
-The hardware objection is gone. What is still open is framing, not feasibility:
+The hardware objection is gone and the browser path works on desktop. What is still open is framing,
+not feasibility:
 
 1. `PngCompression` already exists, so the pitch is about improving on a baseline, not inventing one.
-2. The browser half is unverified, and it is the half that makes the result shareable.
-3. Three quarters of the file is SH coefficients, so that is where compression work should start.
+2. Three quarters of the file is SH coefficients, so that is where compression work should start.
+3. Phones are still untested, and phones are where "send someone a link" actually gets judged.
 
 This was a spike during an ideation discussion. No design has been agreed and no project code has
 been written.
