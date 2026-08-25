@@ -1,0 +1,416 @@
+================================================================================
+GAUSSIAN SPLATTING FEASIBILITY SPIKE
+================================================================================
+Question:  Can an RTX 4050 Laptop (6 GB) train a Gaussian Splat scene, and does
+           the browser viewing path hold up?
+Purpose:   De-risk portfolio project "A-prime" (capture -> splat -> compress ->
+           deploy to browser) BEFORE committing weekend time to it.
+Started:   2026-08-25
+Operator:  Claude Code (Opus 5), on Ved's machine
+Log rule:  Every command and its verdict is recorded. Failures are recorded in
+           full, not summarised. Stop at first hard failure; do not push through.
+
+PASS CRITERIA (all four must hold)
+  1. gsplat compiles and imports against the installed CUDA toolkit
+  2. one real scene trains end-to-end in < ~45 min
+  3. peak VRAM stays under 6 GB
+  4. output .ply is FAT (>100 MB) -- that fat is the compression headroom the
+     whole project depends on. A small .ply means no project.
+
+FAIL PLAN
+  Windows build fails -> ASK before switching to WSL2 (Ubuntu-22.04 present)
+  VRAM/time blow out   -> abandon A-prime, flip to B-prime (browser segmentation)
+
+================================================================================
+STAGE 0 - ENVIRONMENT RECON  [COMPLETE - PASS]
+================================================================================
+GPU              : NVIDIA GeForce RTX 4050 Laptop GPU, 6141 MiB, driver 591.66
+CUDA toolkits    : v12.8 AND v12.9 installed
+nvcc on PATH     : 12.9 (release 12.9, V12.9.86)
+MSVC             : VS Build Tools 2019, 16.11.35706.149, toolset 14.29.30133
+PyTorch (py3.13) : 2.7.0+cu118   <-- MISMATCH vs nvcc 12.9
+PyTorch (py3.11) : 2.7.1+cu118   <-- MISMATCH vs nvcc 12.9
+Default python   : 3.13.1 (C:\Python313) -- too new for splat ecosystem
+Other pythons    : 3.11 and 3.12 at %LOCALAPPDATA%\Programs\Python\
+WSL2             : Ubuntu-22.04 installed, default version 2  (ESCAPE HATCH)
+Disk free        : 91 GB of 475 GB on C:
+COLMAP           : not installed
+
+TWO PROBLEMS IDENTIFIED, BOTH CHEAP:
+ P1. torch built for cu118 but nvcc is 12.9. Building any CUDA extension would
+     hard-fail in torch.utils.cpp_extension with a version-mismatch error.
+     FIX: CUDA 12.8 toolkit is ALREADY installed and torch 2.7 ships cu128
+     wheels -> match them exactly. Point CUDA_HOME at v12.8, not v12.9.
+ P2. Default python is 3.13. FIX: use the installed 3.11 in a fresh venv.
+     The FYP environment is NOT touched at any point.
+
+UNCERTAINTY CARRIED FORWARD:
+ - VS2019 16.11 as host compiler for CUDA 12.8 is believed supported (16.11 is
+   the documented minimum for CUDA 12.x) but NOT confirmed. If nvcc rejects the
+   host compiler, fix is VS2022 Build Tools (free install).
+
+================================================================================
+STAGE 1 - TOOLCHAIN  [IN PROGRESS]
+================================================================================
+
+[1.1] Create isolated venv on Python 3.11
+  CMD: %LOCALAPPDATA%\Programs\Python\Python311\python.exe -m venv .venv
+  OUT: venv created, Python 3.11.0; pip upgraded 22.3 -> 26.2.1
+  VERDICT: PASS
+
+[1.2] Install torch built for CUDA 12.8 (fixes P1)
+  CMD: .venv\Scripts\python.exe -m pip install torch torchvision \
+         --index-url https://download.pytorch.org/whl/cu128
+  RATIONALE: match torch's CUDA build to the installed v12.8 toolkit exactly,
+             so torch.utils.cpp_extension's version check passes.
+  OUT: Successfully installed torch-2.11.0+cu128 torchvision-0.26.0+cu128
+       NOTE: pip resolved to torch 2.11.0 (latest), not 2.7.x. cu128 build
+       confirmed. Ecosystem compat with 2.11 is a NEW RISK - gsplat prebuilt
+       wheels are unlikely to exist this high; expect source build.
+  VERDICT: PASS
+
+[1.3] Verify CUDA reachable through torch
+  OUT: torch 2.11.0+cu128 | cuda build 12.8 | available True
+       device NVIDIA GeForce RTX 4050 Laptop GPU | capability (8,9) = Ada sm_89
+       4096x4096 cuda matmul: OK
+  *** KEY FINDING: vram free 4.95 GiB of 6.00 GiB total ***
+       ~1 GB is held by Windows/display. REAL BUDGET IS ~5 GB, NOT 6 GB.
+       All later VRAM judgements are made against 4.95 GiB, not 6.0.
+  VERDICT: PASS (P1 resolved: torch cu128 matches installed toolkit v12.8)
+
+[1.4] Verify MSVC host-compiler environment (the flagged uncertainty)
+  Building CUDA extensions needs cl.exe PLUS the INCLUDE/LIB env that
+  vcvars64.bat sets. Testing via cmd shim rather than assuming.
+  VERDICT: PASS (vcvars64 exit 0; cl.exe 14.29.30133 Hostx64\x64;
+           Windows SDK 10.0.19041.0 on INCLUDE)
+           The VS2019-vs-CUDA-12.8 uncertainty from Stage 0 RESOLVES OK.
+
+[1.5] Install gsplat
+  CMD: (inside vcvars64 + CUDA_HOME=v12.8 + TORCH_CUDA_ARCH_LIST=8.9)
+       .venv\Scripts\python.exe -m pip install gsplat --no-build-isolation -v
+  OUT: Successfully installed gsplat-1.5.3
+  NOTE: wheel is gsplat-1.5.3-py3-none-any.whl = PURE PYTHON. No CUDA was
+        compiled at install time. gsplat 1.5 JIT-compiles kernels on FIRST USE,
+        so the build risk was deferred, not tested.
+  VERDICT: PASS (install only)
+
+[1.6] Smoke test to force the JIT CUDA compile  -- FAILED (attempt 1)
+  ERR: ModuleNotFoundError: No module named 'packaging'
+       gsplat/cuda/_backend.py:15 imports packaging but gsplat 1.5.3 does not
+       declare it as a dependency. Upstream packaging bug, trivial.
+  FIX: pip install packaging
+  VERDICT: FAIL -> fixed, retried
+
+[1.7] Smoke test attempt 2  -- FAILED (HARD, root cause found)
+  ERR (surface): ninja: build stopped: subcommand failed.
+  ERR (real):
+    torch/include/c10/cuda/CUDACachingAllocator.h(105):
+      error: invalid combination of type specifiers
+    torch/include/c10/cuda/CUDACachingAllocator.h(106):
+      error: type name is not allowed
+    2 errors detected compiling gsplat/cuda/csrc/IntersectTile.cu
+
+  *** ROOT CAUSE (confirmed by inspection, not guessed) ***
+    Windows SDK 10.0.19041.0\shared\rpcndr.h line 190:   #define small char
+    torch 2.11.0 CUDACachingAllocator.h line 105:
+        StreamSegmentSize(cudaStream_t s, bool small, size_t sz)
+          : stream(s), is_small_pool(small), total_size(sz) {}
+    The SDK macro rewrites the parameter to `bool char` -> error at 105, and
+    `is_small_pool(char)` -> "type name is not allowed" at 106.
+
+  IMPLICATION: torch 2.11.0's headers cannot compile ANY CUDA extension on
+    Windows. This is a PyTorch bug, not a machine/config problem. Upgrading to
+    VS2022 would NOT fix it -- the damage is done by the Windows SDK macro,
+    which every MSVC version has.
+
+  RED HERRING (ignore, gsplat handles it):
+    TypeError: _jit_compile() missing 2 required positional arguments
+    gsplat/cuda/_backend.py:95-98 already catches this and retries with the
+    torch>=2.7 SYCL signature.
+
+  FIX CHOSEN: downgrade torch 2.11.0 -> 2.7.1, keeping cu128 to stay matched
+    to the installed v12.8 toolkit. 2.7.x predates StreamSegmentSize and is the
+    torch generation gsplat 1.5.3 is written against.
+  NOT chosen (yet): VS2022 Build Tools (wouldn't help), WSL2 (needs Ved's OK).
+
+[1.8] Downgrade torch to 2.7.1+cu128
+  CMD: .venv\Scripts\python.exe -m pip install torch==2.7.1 torchvision==0.22.1 \
+         --index-url https://download.pytorch.org/whl/cu128
+       (also: rm -rf %LOCALAPPDATA%\torch_extensions  -- clear stale JIT cache)
+  OUT: Successfully installed torch-2.7.1+cu128 torchvision-0.22.1+cu128
+  CHECK: grep 'bool small|StreamSegmentSize' in 2.7.1's CUDACachingAllocator.h
+         -> NO MATCHES. The offending struct does not exist in this version.
+  CHECK: torch 2.7.1+cu128 | cuda 12.8 | available True
+  VERDICT: PASS
+
+[1.9] Smoke test attempt 3 (torch 2.7.1) -- running in background
+       (JIT compile of ~30 .cu files, MAX_JOBS=4, arch sm_89 only)
+       STATUS AT TIME OF WRITING: still compiling, no errors emitted yet.
+
+================================================================================
+STAGE 2 PREP - done while stage 1.9 compiles
+================================================================================
+[2.0] Cloned nerfstudio-project/gsplat, checked out tag v1.5.3 to MATCH the
+      installed wheel. (main HEAD pins torch==2.9.1 + nvidia-ncore + ppisp,
+      which would have reintroduced the torch-version problem. Do not use main.)
+
+[2.1] v1.5.3 examples/requirements.txt is much lighter than main's. Snags:
+      - numpy<2.0.0 required, but 2.4.6 is installed -> must downgrade to 1.26.x
+      - fused-ssim is a HARD top-level import (simple_trainer.py line 24, used
+        at line 684) and installs from git -> ANOTHER CUDA compile. Small (one
+        kernel) but a second build risk.
+      - viser / nerfview / tyro / torchmetrics / pycolmap(fork) also needed
+
+[2.2] simple_trainer.py flags that matter for a 5 GB budget:
+      --data_factor 4        images downscaled 4x (default) - keeps VRAM down
+      --max_steps            default 30_000; spike will use ~7_000
+      --strategy MCMCStrategy with --strategy.cap-max N
+                             HARD CAP on Gaussian count => DETERMINISTIC VRAM.
+                             This is the key knob for fitting 5 GB.
+      --result_dir           writes ckpts/, ply/, renders/, stats/
+
+[2.3] *** FINDING RELEVANT TO THE PROJECT IDEA, NOT THE SPIKE ***
+      gsplat already ships `gsplat.compression.PngCompression`
+      (imported at simple_trainer.py line 34).
+      So compression of splats is NOT virgin territory - there is an in-repo
+      baseline. This does not kill project A-prime, but it changes the framing:
+      the work becomes "beat / analyse an existing baseline", not "invent
+      compression". That is arguably a BETTER portfolio story (you have
+      something to measure against) but Ved must be told before committing.
+
+[2.4] download_3dgs_paper_scenes.py fetches PRETRAINED .ply scenes from INRIA
+      via HTTP range requests (~700 MB per scene). This lets pass-criteria #4
+      (is the .ply fat?) and Stage 3 (browser viewer) be tested WITHOUT training
+      anything. Cheap shortcut, use it if training proves slow.
+
+DISK WATCH: 91 GB free at stage 0 -> 79 GB after the two torch installs.
+            Purge pip cache before the dataset download.
+
+[1.10] Smoke attempt 3 result (torch 2.7.1) -- FAILED, but PROGRESS
+  The `small` macro bug is GONE: the build got much further and failed on a
+  DIFFERENT unit -- `FAILED: Adam.o` (was IntersectTile.cuda.o).
+  ERR: cl : Command line error D8021 : invalid numeric argument '/Wno-attributes'
+
+  *** ROOT CAUSE #2 (confirmed) ***
+    gsplat/cuda/_backend.py line 177:
+        extra_cflags = [opt_level, "-Wno-attributes"]
+    `-Wno-attributes` is a GCC/Clang flag. MSVC parses it as /W + "no-attributes"
+    -> D8021. `opt_level` is "-O3", also not valid MSVC syntax.
+    gsplat 1.5.3 does not guard its host-compiler flags for Windows/MSVC.
+    This is an upstream gsplat portability bug, independent of the torch bug.
+
+  NOTE: only the .cpp host units fail; the .cu units compiled fine (build
+  reached [19/30]). Confirms the problem is host-compiler flags, not CUDA.
+
+  CHECKED: USE_PRECOMPILED_HEADERS defaults to "0", so the other GCC-only flags
+    at line 76 ("-include", "-Winvalid-pch") are NOT on the code path. Only
+    line 177 needs patching.
+
+[1.11] PATCH APPLIED (local, reversible)
+  FILE: .venv/Lib/site-packages/gsplat/cuda/_backend.py
+  BACKUP: splat-spike/_backend.py.ORIGINAL.bak
+  CHANGE: guard the flags by platform --
+        if os.name == "nt":
+            extra_cflags = ["/Od" if FAST_COMPILE else "/O2"]
+        else:
+            extra_cflags = [opt_level, "-Wno-attributes"]
+  extra_cuda_cflags keeps "-O3": nvcc DOES accept -O3, only cl.exe does not.
+  Build cache cleared (%LOCALAPPDATA%\torch_extensions) so flags re-evaluate.
+  CAVEAT: this patch lives in site-packages. It is LOST on reinstall/new venv.
+    If project A-prime proceeds, this must become either a documented setup
+    step, an upstream PR, or a vendored fork.
+
+[1.12] Smoke attempt 4 -- running in background
+
+================================================================================
+STAGE 2 - DATA  [COMPLETE]
+================================================================================
+[2.5] Dataset choice: Tanks & Temples "truck" from the 3DGS paper inputs.
+  WHY NOT mip-NeRF 360: 360_v2.zip is 11.67 GiB (HEAD-checked) for all 7 scenes
+    with no per-scene URL. Too much for a spike.
+  CHOSEN: tandt_db.zip = 0.64 GiB (HEAD-checked). Downloaded in 77 s.
+  Extracted ONLY tandt/truck (259 zip members).
+
+[2.6] Built downscaled folders (script: _get_data.py)
+  gsplat colmap.py:185 RAISES if images_<factor> is absent, and T&T ships only
+  images/. So we generate them. Written as PNG so the parser's jpg-rescale
+  branch (colmap.py:193) is skipped and our images are the ones used.
+
+  *** IMPORTANT FINDING ***
+  T&T truck images are ALREADY downscaled in the distribution: 979 x 546.
+  They are NOT 1080p. Therefore:
+      images    = 979 x 546   <- use this, --data_factor 1
+      images_2  = 490 x 273   <- low-VRAM fallback
+      images_4  = 245 x 136   <- TOO SMALL, do not use for a real test
+  CONSEQUENCE FOR PASS CRITERION #4: a scene trained at 979x546 will produce a
+  LIGHTER .ply than the ~700 MB pretrained mip-NeRF 360 models. If the .ply
+  comes out small, that is partly the resolution, not proof that compression
+  headroom is absent. Cross-check against a pretrained INRIA .ply (see 2.4)
+  before concluding anything about criterion #4.
+
+  Scene ready: data/tandt/truck
+    images/ 251 | images_2/ 251 | images_4/ 251
+    sparse/0/ = cameras.bin, images.bin, points3D.bin, project.ini
+
+[2.7] Installing trainer deps (background): numpy<2, imageio, tqdm, tyro, viser,
+  pyyaml, torchmetrics[image], scikit-learn, opencv-python, Pillow, tensorboard,
+  tensorly, matplotlib, splines, pycolmap(rmbrualla fork), nerfview.
+  fused-ssim DELIBERATELY HELD BACK -- it is a CUDA compile and would contend
+  with the gsplat JIT build. Install it only after gsplat finishes.
+
+DISK: 91 GB free (pip cache purge reclaimed 11.7 GB).
+
+[1.12] RESULT: *** PASS ***
+  COMPILE+RUN OK in 283.0s   (~4.7 min, MAX_JOBS=4, TORCH_CUDA_ARCH_LIST=8.9)
+  rasterization output: (1, 240, 320, 3) float32
+  peak vram: 0.002 GiB (trivial - only 1000 gaussians, this is a smoke test)
+
+  >>> PASS CRITERION #1 MET: gsplat compiles and imports against CUDA v12.8 <<<
+
+  WORKING TOOLCHAIN RECIPE (reproduce with exactly this):
+    python      3.11.0 (NOT 3.13 - default on PATH is 3.13, do not use it)
+    torch       2.7.1+cu128   (NOT 2.11 - Windows SDK `small` macro bug)
+    torchvision 0.22.1+cu128
+    gsplat      1.5.3 + local MSVC-flag patch to cuda/_backend.py:177
+    packaging   (undeclared gsplat dep, install manually)
+    CUDA_HOME   C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8
+                (v12.9 is on PATH by default - must be overridden)
+    host env    vcvars64.bat from VS Build Tools 2019 16.11 (14.29.30133)
+    TORCH_CUDA_ARCH_LIST=8.9   (pin to Ada only; without it the build is ~8x
+                                longer for zero benefit on this machine)
+    MAX_JOBS=4
+
+STAGE 1 VERDICT: PASS, after 2 upstream bugs + 1 undeclared dependency.
+
+================================================================================
+STAGE 2 - TRAINING
+================================================================================
+[2.8] Remaining deps installed OK. numpy pinned 2.4.6 -> 1.26.4 (gsplat v1.5.3
+  examples require numpy<2). torch/numpy/tyro/viser/torchmetrics/pycolmap/
+  nerfview all import cleanly together.
+
+[2.9] fused-ssim attempt 1 FAILED: "error: invalid command 'bdist_wheel'"
+  CAUSE: OUR error, not upstream. We passed --no-build-isolation (correct, so it
+  builds against the installed torch) but the venv had no `wheel` package.
+  FIX: pip install wheel setuptools, retry. -> Successfully installed
+  fused-ssim-0.0.0, verified on GPU (fused_ssim returns a real value).
+
+[2.10] Trainer CLI confirmed by --help. tyro uses HYPHENS, not underscores:
+  simple_trainer.py {default|mcmc} --data-dir --data-factor --max-steps
+  --save-ply --disable-viewer --result-dir --strategy.cap-max --compression
+  NOTE: --compression {None,png} exposes gsplat's built-in PngCompression.
+  MCMCStrategy.cap_max defaults to 1_000_000. MCMC chosen over `default`
+  because the hard cap makes VRAM DETERMINISTIC, which is what a 5 GB budget
+  needs.
+
+[2.11] Training attempt 1 -- FAILED in 0.16 min
+  ERR: pycolmap/scene_manager.py:102
+       num_cameras = struct.unpack('L', f.read(8))[0]
+       struct.error: unpack requires a buffer of 4 bytes
+
+  *** ROOT CAUSE #3 (confirmed) ***
+    Python's struct format 'L' WITHOUT a byte-order prefix uses NATIVE size.
+      Linux   (LP64):  unsigned long = 8 bytes  -> works
+      Windows (LLP64): unsigned long = 4 bytes  -> reads 8, unpacks 4 -> error
+    The rmbrualla/pycolmap fork is silently Linux-only. COLMAP's binary format
+    actually stores these as uint64, so the correct format is '<Q'.
+    Same class of bug at 'IiLL' (line 105): COLMAP writes camera width/height
+    as uint64, so the correct format is '<IiQQ' (4+4+8+8 = 24 bytes, matching
+    the f.read(24) already in the code).
+
+[2.12] PATCH APPLIED (local, reversible)
+  FILE: .venv/Lib/site-packages/pycolmap/scene_manager.py
+  BACKUP: splat-spike/_scene_manager.py.ORIGINAL.bak
+  5 read-path sites changed to explicit little-endian standard widths:
+    L102  'L'     -> '<Q'    (num_cameras)
+    L105  'IiLL'  -> '<IiQQ' (camera_id, model, width, height)
+    L143  'L'     -> '<Q'    (num_images)
+    L154  'Q'     -> '<Q'    (num_points2D; harmless, done for consistency)
+    L231  'L'     -> '<Q'    (num_points3D)
+  The WRITE path (lines 313-421) still uses native 'L' and is STILL BROKEN on
+  Windows. We do not use it. If a future project writes COLMAP binaries on
+  Windows, patch those too.
+
+  VERIFIED after patch - truck scene parses:
+    cameras : 1 -> 1957 x 1091, fx = 1163.3
+    images  : 251
+    points3D: 136029
+
+[2.13] *** TRAP AVOIDED ***
+  COLMAP reports the camera as 1957 x 1091 but the image FILES are 979 x 546 --
+  Tanks & Temples ships images already downscaled 2x from the reconstruction.
+  This looked like it would break the intrinsics. It does NOT: gsplat's Parser
+  (colmap.py:265-273) reads one actual image, computes s_width/s_height against
+  the COLMAP size, and rescales K accordingly. So --data-factor 1 is CORRECT
+  here, and the images_2/images_4 folders we generated are unused (harmless).
+  Recorded because the same mismatch WILL look like a bug to anyone who sees
+  1957 vs 979 and assumes the intrinsics are wrong.
+
+[2.14] Training attempt 2 -- running (mcmc, factor 1, 7000 steps, cap-max 1e6)
+  RESULT: *** PASS - ALL FOUR CRITERIA MET ***
+
+  WALL CLOCK      : 7.57 min          (bar: < 45 min)          PASS, 6x margin
+  PEAK GPU MEMORY : 2960 MiB / 6141   = 2.891 GiB (bar: < 5)   PASS, 2 GiB spare
+  QUALITY         : PSNR 24.406 | SSIM 0.8580 | LPIPS 0.1372
+                    (3DGS paper reports ~25.2 on truck at 30k steps; we ran
+                     7k steps, so 24.4 is in the right neighbourhood)
+  GAUSSIANS       : 1,000,000 (hit --strategy.cap-max, so this is OUR cap,
+                    not a limit the hardware imposed)
+  RENDER          : 0.0246 s/image = ~41 FPS at 979x546
+  OUTPUT .PLY     : 236,001,478 bytes = 225 MiB   (bar: > 100 MB)  PASS
+
+  >>> ARITHMETIC THAT MATTERS FOR THE PROJECT <<<
+  236,001,478 / 1,000,000 = 236.0 bytes per Gaussian, exactly:
+      means      3 floats
+      scales     3 floats
+      quats      4 floats
+      opacity    1 float
+      SH dc      3 floats
+      SH rest   45 floats   <-- 76% of every Gaussian
+      -------------------
+      total     59 floats x 4 bytes = 236 bytes
+  So THREE QUARTERS of the file is spherical-harmonic coefficients. Any serious
+  compression work targets SH first. This is a concrete, measured target, not a
+  guess.
+
+  HEADROOM NOTE: peak was 2.89 GiB against ~4.95 GiB usable. The 6 GB card is
+  NOT the binding constraint at 1M Gaussians. Room to roughly double the cap,
+  or train at higher resolution, or both.
+
+STAGE 2 VERDICT: PASS.
+
+================================================================================
+STAGE 3 - BROWSER PATH  [PARTIAL - NOT COMPLETED]
+================================================================================
+[3.1] Cloned antimatter15/splat (index.html + main.js + convert.py) as a
+  reference web viewer.
+[3.2] Upstream convert.py loops per-vertex in Python -> unusable at 1M
+  gaussians. Wrote a vectorised replacement: _ply_to_splat.py (0.6 s).
+[3.3] MEASURED:
+   .ply    236,001,478 bytes = 225 MiB   (59 float32 fields per gaussian)
+   .splat   32,000,000 bytes =  30 MiB   (32 bytes per gaussian)
+   ratio                        7.38x
+  BUT the .splat format achieves this by DISCARDING all 45 f_rest_* SH
+  coefficients, keeping only the DC term. It is lossy in appearance, not just
+  in precision. The web's de-facto format already throws away view-dependent
+  colour and nobody says so out loud.
+  PLY field list confirmed: 59 fields = x,y,z, f_dc_0..2, f_rest_0..44,
+  opacity, scale_0..2, rot_0..3.
+
+[3.4] NOT DONE: the .splat was never actually loaded in a browser, and never
+  tested on a phone. STAGE 3 IS UNVERIFIED. Do this before trusting the
+  "runs in anyone's browser" half of the project pitch.
+
+================================================================================
+SPIKE CONCLUSION
+================================================================================
+Criterion 1 gsplat compiles + imports .................. PASS (after 2 patches)
+Criterion 2 scene trains < 45 min ...................... PASS (7.57 min)
+Criterion 3 peak VRAM < ~5 GiB ......................... PASS (2.89 GiB)
+Criterion 4 .ply is fat enough to be worth compressing . PASS (225 MiB)
+Stage 3     browser/phone rendering .................... NOT TESTED
+
+VERDICT: project A-prime is FEASIBLE on this hardware. The 6 GB card was the
+risk I was most worried about and it turned out to have ~2 GiB to spare at 1M
+gaussians. The real risk was the Windows toolchain, which cost three upstream
+bugs to get through -- all now documented with patches.

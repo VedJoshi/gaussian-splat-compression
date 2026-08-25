@@ -1,0 +1,22 @@
+# Environments and third-party checkouts
+.venv/
+_gsplat_repo/
+_webviewer/
+
+# Data and outputs (~15 GB, all regenerable)
+data/
+results/
+
+# Raw build and run logs
+_*.log
+_STOP_*
+_vram_trace.csv
+_vram_peak.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# throwaway probes
+_msvc_check.bat
+_dl_pretrained.py
