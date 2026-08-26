@@ -15,19 +15,21 @@ The work is split into eight milestones. You are executing **milestone 1**, whic
 
 Read these three files first, in this order. They are the authority and they disagree with nothing:
 
-1. `HANDOFF.md` — current state, what is done, what is deferred, and why.
-2. `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md` — the design the plan argues from. The spec is binding when anything conflicts.
-3. `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md` — 11 tasks, 76 steps, with complete code for each. Read its **Global Constraints** section carefully; every task inherits it.
+1. `HANDOFF.md`: current state, what is done, what is deferred, and why.
+2. `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`: the design the plan argues from. The spec is binding when anything conflicts.
+3. `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`: 11 tasks, 76 steps, with complete code for each. Read its **Global Constraints** section carefully; every task inherits it.
 
 Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. It is the authoritative record of what is complete and every ruling made so far. **Trust the ledger and `git log` over anything you think you remember.**
 
 ## Where things stand
 
-Branch `milestone-1-scripted-pipeline`, with Task 3 complete at `78817e4` before the repository rename documentation commit. Nothing on this branch has been pushed.
+Branch `milestone-1-scripted-pipeline`, with Task 4 complete at `1d2f7e6` before the handoff refresh. Nothing on this branch has been pushed.
 
-Tasks 1, 2 and 3 are implemented and passed review. **Task 4 is the first unfinished task.** Tasks 4 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
+Tasks 1 through 4 are implemented and passed review. **Task 5 is the first unfinished task.** Tasks 5 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
-Current suite: `17 passed, 1 deselected` fast tier, `18 passed, 1 warning` complete tier.
+Task 4 added frozen run configuration, strict validation, TOML loading, a stable parameter digest, and `configs/truck.toml`. Its review found that integer fields accepted floats and booleans. Commit `1d2f7e6` rejects both at the configuration boundary and passed the scoped re-review.
+
+Current suite: `34 passed, 1 deselected` fast tier, `35 passed, 1 warning` complete tier.
 
 ## How to work
 
@@ -81,7 +83,7 @@ git log --oneline -5
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected before Task 4: clean tree, Task 3 present at `78817e4`, `17 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 5: clean tree, Task 4 present at `1d2f7e6` before the handoff refresh, `34 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -100,14 +102,13 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **Task 4, run configuration.** Complete code in the brief.
-2. **Task 5, scene validation and output paths.** Complete code in the brief.
-3. **Task 6, `GaussianCloud` and `.ply` I/O.** This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
-4. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU.
-5. **Task 8, run manifest.** Complete code in the brief.
-6. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
-7. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
-8. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
+1. **Task 5, scene validation and output paths.** Complete code in the brief.
+2. **Task 6, `GaussianCloud` and `.ply` I/O.** This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
+3. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU.
+4. **Task 8, run manifest.** Complete code in the brief.
+5. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
+6. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
+7. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
 
 Also fold in the two deferred minor issues at Task 11: `requirements.lock.txt` records the package as a `git+ssh` URL to a private remote, which nobody without SSH keys can install from, and `plyfile` is pinned `>=1.0` so it resolved to 1.1.3 rather than the 1.1.5 the spike ran on. Both are documented in `HANDOFF.md`.
 
