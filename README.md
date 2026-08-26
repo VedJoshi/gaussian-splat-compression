@@ -117,11 +117,17 @@ Windows. Nothing here writes COLMAP binaries, so it does not matter yet.
 Two smaller ones: gsplat imports `packaging` without declaring it as a dependency, and `fused-ssim`
 needs `wheel` installed when building with `--no-build-isolation`.
 
-## The patches are fragile
+## The patches
 
-Both fixes were applied inside `.venv/Lib/site-packages/`. A reinstall, an upgrade, or a fresh venv
-destroys them, and `pip freeze` will not show them. If this turns into a real project, they need to
-become a setup script, an upstream PR, or a vendored fork.
+Both fixes live inside `.venv/Lib/site-packages/`, so a reinstall or an upgrade destroys them and
+`pip freeze` will not show them. They are scripted rather than manual:
+
+    scripts\env.bat
+    .venv\Scripts\python.exe scripts\setup_env.py --check
+
+reports whether each is applied, and dropping `--check` applies them. If an upgrade changes the
+upstream source the status reads `stale`, which means the patch needs re-deriving rather than
+forcing. The definitions are in `scripts/patches/definitions.py`, with the reason for each.
 
 ## Working toolchain
 
@@ -191,7 +197,6 @@ Two things about the data that look like bugs and are not:
 | `_get_data.py` | Downloads and prepares the truck scene. |
 | `_vram_sampler.py` | Samples nvidia-smi, so it measures the whole board rather than just PyTorch's allocator. |
 | `_browser_test.png` | Screenshot of the scene rendering in a browser at 60 fps. |
-| `*.ORIGINAL.bak` | Unmodified copies of the two patched library files. |
 
 Not in git: `.venv/`, `data/`, `results/`, `_gsplat_repo/`, `_webviewer/`, build logs. About 15 GB
 in total. The whole folder is safe to delete; nothing outside it was changed except the two patched
