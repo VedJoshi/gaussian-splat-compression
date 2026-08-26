@@ -48,6 +48,13 @@ def test_out_of_range_values_are_rejected():
         RunConfig(name="truck", export=ExportConfig(order="sideways"))
 
 
+@pytest.mark.parametrize("value", [2.5, True], ids=["float", "bool"])
+@pytest.mark.parametrize("field", ["max_steps", "cap_max", "data_factor", "test_every"])
+def test_non_integer_training_values_are_rejected(field, value):
+    with pytest.raises(ConfigError, match=f"{field} must be an integer"):
+        TrainConfig.from_dict({field: value})
+
+
 def test_loads_from_toml(tmp_path):
     path = tmp_path / "run.toml"
     path.write_text('name = "tiny"\n\n[train]\nmax_steps = 50\ncap_max = 5000\n', encoding="utf-8")

@@ -39,6 +39,10 @@ class TrainConfig:
     strategy: str = "mcmc"
 
     def __post_init__(self) -> None:
+        for field_name in ("max_steps", "cap_max", "data_factor", "test_every"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ConfigError(f"{field_name} must be an integer, got {value!r}")
         if self.max_steps <= 0:
             raise ConfigError(f"max_steps must be positive, got {self.max_steps}")
         if self.cap_max <= 0:
