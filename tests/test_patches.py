@@ -6,7 +6,16 @@ SIMPLE = Patch(
     name="example",
     module="does.not.matter",
     reason="a test patch",
+    applied_marker="a = 2",
     replacements=(Replacement(old="a = 1", new="a = 2"),),
+)
+
+INDENTED = Patch(
+    name="indented",
+    module="does.not.matter",
+    reason="regression guard",
+    applied_marker="value = patched",
+    replacements=(Replacement(old="    value = original\n", new="    value = patched\n"),),
 )
 
 
@@ -41,6 +50,37 @@ def test_apply_refuses_a_stale_anchor(tmp_path):
 def test_apply_refuses_an_ambiguous_anchor(tmp_path):
     with pytest.raises(RuntimeError, match="2 times"):
         apply_patch(SIMPLE, write(tmp_path, "a = 1\na = 1\n"))
+
+
+def test_anchor_does_not_match_a_more_indented_line(tmp_path):
+    """A 4-space anchor must not match an 8-space line that ends the same way.
+
+    This is the bug that spliced a nested if/else into gsplat's already-patched
+    _backend.py and produced an IndentationError in a live library file.
+    """
+    target = write(tmp_path, "def f():\n    if x:\n        value = original\n")
+    assert patch_status(INDENTED, target) == "stale"
+
+
+def test_applied_is_decided_by_the_marker_not_the_comment(tmp_path):
+    """The installed gsplat patch carries a different comment banner than our
+    definition. Same code, different wording, and it is still applied."""
+    target = write(tmp_path, "# a completely different comment\n    value = patched\n")
+    assert patch_status(INDENTED, target) == "applied"
+
+
+def test_apply_refuses_to_write_invalid_python(tmp_path):
+    breaker = Patch(
+        name="breaker",
+        module="does.not.matter",
+        reason="guard",
+        applied_marker="never appears",
+        replacements=(Replacement(old="x = 1\n", new="def broken(:\n"),),
+    )
+    target = write(tmp_path, "x = 1\n")
+    with pytest.raises(RuntimeError, match="invalid Python"):
+        apply_patch(breaker, target)
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
 
 
 @pytest.mark.gpu
