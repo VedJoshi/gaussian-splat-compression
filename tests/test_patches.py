@@ -6,7 +6,6 @@ SIMPLE = Patch(
     name="example",
     module="does.not.matter",
     reason="a test patch",
-    applied_marker="a = 2",
     replacements=(Replacement(old="a = 1", new="a = 2"),),
 )
 
@@ -14,7 +13,6 @@ INDENTED = Patch(
     name="indented",
     module="does.not.matter",
     reason="regression guard",
-    applied_marker="value = patched",
     replacements=(Replacement(old="    value = original\n", new="    value = patched\n"),),
 )
 
@@ -52,6 +50,33 @@ def test_apply_refuses_an_ambiguous_anchor(tmp_path):
         apply_patch(SIMPLE, write(tmp_path, "a = 1\na = 1\n"))
 
 
+def test_patch_preserves_the_original_four_argument_constructor():
+    patch = Patch(
+        name="compatibility",
+        module="does.not.matter",
+        reason="public API regression guard",
+        replacements=(Replacement(old="old", new="new"),),
+    )
+
+    assert patch.name == "compatibility"
+
+
+def test_partial_multi_replacement_patch_is_stale_and_refused(tmp_path):
+    """One applied replacement must not hide the remaining stale anchors."""
+    from scripts.patches.definitions import PYCOLMAP_STRUCT_WIDTHS
+
+    replacements = PYCOLMAP_STRUCT_WIDTHS.replacements
+    partial_source = "\n".join(
+        (replacements[0].old, replacements[1].new, *(replacement.old for replacement in replacements[2:]))
+    )
+    target = write(tmp_path, partial_source)
+
+    assert patch_status(PYCOLMAP_STRUCT_WIDTHS, target) == "stale"
+    with pytest.raises(RuntimeError, match="does not match"):
+        apply_patch(PYCOLMAP_STRUCT_WIDTHS, target)
+    assert target.read_text(encoding="utf-8") == partial_source
+
+
 def test_anchor_does_not_match_a_more_indented_line(tmp_path):
     """A 4-space anchor must not match an 8-space line that ends the same way.
 
@@ -74,7 +99,6 @@ def test_apply_refuses_to_write_invalid_python(tmp_path):
         name="breaker",
         module="does.not.matter",
         reason="guard",
-        applied_marker="never appears",
         replacements=(Replacement(old="x = 1\n", new="def broken(:\n"),),
     )
     target = write(tmp_path, "x = 1\n")

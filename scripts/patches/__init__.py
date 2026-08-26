@@ -19,6 +19,7 @@ class Replacement:
 
     old: str
     new: str
+    applied_marker: str | None = None
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,6 @@ class Patch:
     name: str
     module: str
     reason: str
-    applied_marker: str
     replacements: tuple[Replacement, ...]
 
 
@@ -61,19 +61,17 @@ def _anchor_positions(text: str, anchor: str) -> list[int]:
 def patch_status(patch: Patch, path: Path) -> str:
     """Return "applied", "appliable", or "stale".
 
-    "applied" is decided by `applied_marker` alone, a fragment of the patched
-    code rather than the full replacement text. A hand-applied fix can carry
-    different comment wording than the canonical patch while being the same
-    code change; deciding "applied" from the full replacement text (comment
-    included) reports a genuinely patched file as merely "appliable", which is
-    what let an already-patched file be treated as unpatched and rewritten.
+    Every replacement must have evidence that it is applied. By default that
+    evidence is its complete `new` text. A replacement may instead provide a
+    stable `applied_marker` when an equivalent hand patch differs only in
+    comments or other non-functional text.
 
     "stale" means the installed file no longer contains the anchors, which is
     what an upgrade looks like. That is a signal to go and re-derive the patch,
     not to force it.
     """
     text = path.read_text(encoding="utf-8")
-    if patch.applied_marker in text:
+    if all((replacement.applied_marker or replacement.new) in text for replacement in patch.replacements):
         return "applied"
     if all(len(_anchor_positions(text, r.old)) == 1 for r in patch.replacements):
         return "appliable"
@@ -84,7 +82,7 @@ def apply_patch(patch: Patch, path: Path) -> str:
     """Apply `patch` to `path` in place. Returns "applied" or "already-applied"."""
     text = path.read_text(encoding="utf-8")
 
-    if patch.applied_marker in text:
+    if all((replacement.applied_marker or replacement.new) in text for replacement in patch.replacements):
         return "already-applied"
 
     for replacement in patch.replacements:

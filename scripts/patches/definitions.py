@@ -15,7 +15,6 @@ GSPLAT_MSVC_FLAGS = Patch(
         "cl.exe reads '-Wno-attributes' as /W followed by 'no-attributes' and "
         "fails with D8021, and '-O3' is not MSVC syntax either."
     ),
-    applied_marker='extra_cflags = ["/Od" if FAST_COMPILE else "/O2"]',
     replacements=(
         Replacement(
             old='        extra_cflags = [opt_level, "-Wno-attributes"]\n',
@@ -26,6 +25,7 @@ GSPLAT_MSVC_FLAGS = Patch(
                 "        else:\n"
                 '            extra_cflags = [opt_level, "-Wno-attributes"]\n'
             ),
+            applied_marker='extra_cflags = ["/Od" if FAST_COMPILE else "/O2"]',
         ),
     ),
 )
@@ -38,7 +38,6 @@ PYCOLMAP_STRUCT_WIDTHS = Patch(
         "native width: 8 bytes on Linux LP64, 4 on Windows LLP64. It reads 8 "
         "bytes from the file and then tries to unpack 4 of them."
     ),
-    applied_marker="struct.unpack('<IiQQ', f.read(24))",
     replacements=(
         Replacement(
             old="num_cameras = struct.unpack('L', f.read(8))[0]",
