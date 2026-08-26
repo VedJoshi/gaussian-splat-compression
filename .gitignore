@@ -20,3 +20,6 @@ __pycache__/
 # throwaway probes
 _msvc_check.bat
 _dl_pretrained.py
+
+# Subagent-driven development scratch
+.superpowers/

@@ -91,9 +91,12 @@ tests/
 - Create: `pyproject.toml`
 - Create: `src/splatpipe/__init__.py`
 - Create: `src/splatpipe/errors.py`
+- Create: `tests/__init__.py` (empty)
 - Create: `tests/test_package.py`
 - Create: `requirements.lock.txt`
 - Modify: `.gitignore`
+
+`tests/__init__.py` must exist from Task 1, not later. Under pytest's default `prepend` import mode, the directory inserted into `sys.path` is the first one above the test file that has no `__init__.py`. With `tests/__init__.py` present that is the repository root, which is what makes `from scripts.patches import ...` (Task 3) and `from tests.fixtures.tiny_scene import ...` (Tasks 9 and 10) resolve. Without it, `sys.path` gets `tests/` instead and both imports fail.
 
 **Interfaces:**
 - Consumes: nothing
@@ -174,7 +177,7 @@ addopts = "-m 'not gpu'"
 
 - [ ] **Step 4: Write the package files**
 
-`src/splatpipe/__init__.py`:
+Create `tests/__init__.py` as an empty file, then `src/splatpipe/__init__.py`:
 
 ```python
 """Reproducible Gaussian splat training, compression and packaging."""
@@ -820,7 +823,7 @@ git commit -m "Script the two site-packages patches instead of applying them by 
 
 There is deliberately no `seed` field. `simple_trainer.py` calls `set_random_seed(42 + local_rank)` at `Runner.__init__` and exposes no config field for it, so a `seed` setting here would be a lie: it would appear in the manifest, appear to control something, and control nothing. The manifest records the fixed 42 as a version fact instead.
   - `ExportConfig(order: str = "morton")`
-  - `RunConfig(name: str, train: TrainConfig, export: ExportConfig)` with `.to_dict() -> dict`, `.digest() -> str` (12 hex chars), `RunConfig.from_dict(d) -> RunConfig`, `RunConfig.from_toml(path) -> RunConfig`
+  - `RunConfig(name: str, train: TrainConfig, export: ExportConfig, source_path: Path | None = None)` with `.to_dict() -> dict` (excludes `source_path`), `.digest() -> str` (12 hex chars), `RunConfig.from_dict(d) -> RunConfig`, `RunConfig.from_toml(path) -> RunConfig` (sets `source_path`)
   - All three are frozen dataclasses.
 
 `digest()` deliberately excludes `name`, because the name is an identity label and not a parameter. Two runs with the same parameters under different names should share a digest, so that "have I already computed this?" has a useful answer.
@@ -894,6 +897,18 @@ def test_the_checked_in_truck_config_loads():
     cfg = RunConfig.from_toml("configs/truck.toml")
     assert cfg.name == "truck"
     assert cfg.train.max_steps == 7000
+
+
+def test_source_path_is_recorded_but_is_not_a_parameter(tmp_path):
+    """The CLI copies the config next to the output, so it needs to know where
+    the file came from. That is provenance, so it stays out of the digest."""
+    path = tmp_path / "run.toml"
+    path.write_text('name = "tiny"\n', encoding="utf-8")
+    cfg = RunConfig.from_toml(path)
+    assert cfg.source_path == path
+    assert "source_path" not in cfg.to_dict()
+    assert cfg.digest() == RunConfig(name="tiny").digest()
+    assert cfg == RunConfig(name="tiny")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -918,9 +933,11 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
+
+from splatpipe.errors import ConfigError
 
 STRATEGIES = ("mcmc", "default")
 ORDERS = ("morton", "size_opacity", "none")
@@ -934,9 +951,6 @@ def _reject_unknown(cls: type, data: dict[str, Any]) -> None:
             f"{cls.__name__}: unknown key(s) {', '.join(unknown)}. Known keys are: "
             f"{', '.join(sorted(known))}"
         )
-
-
-from splatpipe.errors import ConfigError  # noqa: E402  (kept below _reject_unknown for readability)
 
 
 @dataclass(frozen=True)
@@ -987,6 +1001,9 @@ class RunConfig:
     name: str
     train: TrainConfig = field(default_factory=TrainConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
+    # Where this config was loaded from. Provenance, not a parameter, so it is
+    # excluded from equality and from to_dict.
+    source_path: Path | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.name or any(c in self.name for c in r'\/:*?"<>| '):
@@ -995,7 +1012,9 @@ class RunConfig:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("source_path")
+        return data
 
     def digest(self) -> str:
         """Twelve hex characters identifying the parameters, ignoring the name.
@@ -1020,7 +1039,8 @@ class RunConfig:
     @classmethod
     def from_toml(cls, path: str | Path) -> RunConfig:
         with open(path, "rb") as handle:
-            return cls.from_dict(tomllib.load(handle))
+            data = tomllib.load(handle)
+        return replace(cls.from_dict(data), source_path=Path(path))
 ```
 
 Note on the import placement: move `from splatpipe.errors import ConfigError` to the top of the file with the other imports when you write it. It is shown mid-file above only so that `_reject_unknown` reads next to its docstring context; there is no cycle and no reason for it to sit below.
@@ -2104,6 +2124,7 @@ git commit -m "Add run manifest recording config, versions, timings and artifact
 **Files:**
 - Create: `tests/fixtures/__init__.py` (empty)
 - Create: `tests/fixtures/colmap_bin.py`
+- Note: `tests/__init__.py` was created in Task 1 and must not be recreated or removed here
 - Create: `tests/fixtures/tiny_scene.py`
 - Create: `tests/test_tiny_scene.py`
 
@@ -2177,7 +2198,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'tests.fixtures'`
 
 - [ ] **Step 3: Write the COLMAP binary writer**
 
-Create `tests/fixtures/__init__.py` as an empty file and `tests/__init__.py` as an empty file (so `tests.fixtures` is importable), then `tests/fixtures/colmap_bin.py`:
+Create `tests/fixtures/__init__.py` as an empty file (`tests/__init__.py` already exists from Task 1), then `tests/fixtures/colmap_bin.py`:
 
 ```python
 """Write COLMAP sparse model binaries.
@@ -2730,7 +2751,8 @@ def run_pipeline(
     paths.ensure()
 
     manifest = RunManifest.start(cfg)
-    shutil.copyfile(cfg_source(cfg, paths), paths.config_file)
+    if cfg.source_path is not None:
+        shutil.copyfile(cfg.source_path, paths.config_file)
 
     trained_ply = paths.trained_ply(cfg.train.max_steps)
     if skip_train:
@@ -2765,11 +2787,6 @@ def run_pipeline(
     return paths
 
 
-def cfg_source(cfg: RunConfig, paths: RunPaths) -> Path:
-    """The config file this run was loaded from, recorded alongside the output."""
-    return cfg.source_path
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="splatpipe")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2797,65 +2814,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-Note the `cfg_source` helper above references `cfg.source_path`, which `RunConfig` does not have. Fix this properly in the next step rather than leaving it: `RunConfig.from_toml` should record where it came from.
-
-- [ ] **Step 5: Record the config's source path**
-
-In `src/splatpipe/config.py`, add a non-comparing field to `RunConfig` and set it in `from_toml`:
-
-```python
-@dataclass(frozen=True)
-class RunConfig:
-    name: str
-    train: TrainConfig = field(default_factory=TrainConfig)
-    export: ExportConfig = field(default_factory=ExportConfig)
-    source_path: Path | None = field(default=None, compare=False, repr=False)
-```
-
-In `to_dict`, drop it, because it is provenance and not a parameter:
-
-```python
-    def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data.pop("source_path")
-        return data
-```
-
-In `from_toml`, set it:
-
-```python
-    @classmethod
-    def from_toml(cls, path: str | Path) -> RunConfig:
-        with open(path, "rb") as handle:
-            data = tomllib.load(handle)
-        return replace(cls.from_dict(data), source_path=Path(path))
-```
-
-Add `replace` to the `dataclasses` import. Then in `cli.py` delete the `cfg_source` function and replace its call site with:
-
-```python
-    if cfg.source_path is not None:
-        shutil.copyfile(cfg.source_path, paths.config_file)
-```
-
-Add a test to `tests/test_config.py`:
-
-```python
-def test_source_path_is_recorded_but_not_a_parameter(tmp_path):
-    path = tmp_path / "run.toml"
-    path.write_text('name = "tiny"\n', encoding="utf-8")
-    cfg = RunConfig.from_toml(path)
-    assert cfg.source_path == path
-    assert "source_path" not in cfg.to_dict()
-    assert cfg.digest() == RunConfig(name="tiny").digest()
-```
-
-- [ ] **Step 6: Run the fast tests to verify they pass**
+- [ ] **Step 5: Run the fast tests to verify they pass**
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 Expected: all fast tests pass, `tests/test_pipeline_e2e.py` deselected.
 
-- [ ] **Step 7: Run the end-to-end test**
+- [ ] **Step 6: Run the end-to-end test**
 
 ```
 scripts\env.bat
@@ -2864,10 +2828,10 @@ scripts\env.bat
 
 Expected: 2 passed, in roughly a minute. This is the first time the whole chain runs, so treat a failure here as the real work of the task rather than a surprise. If gsplat rejects the synthetic scene, the trainer's output is in the test's temporary `logs/train.log`; raise `n_points` or `n_images` in the fixture rather than guessing.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/splatpipe/stages src/splatpipe/cli.py src/splatpipe/config.py tests/
+git add src/splatpipe/stages src/splatpipe/cli.py tests/test_train_command.py tests/test_pipeline_e2e.py
 git commit -m "Add the training stage and the splatpipe run CLI"
 ```
 
@@ -3007,7 +2971,7 @@ Three spec items are deliberately **not** in this plan, and are not gaps:
 - **Running COLMAP on a phone capture** is not here. `SceneLayout` validates that poses exist and says what is missing when they do not. Success criterion 4 ("reproduces a scene from a phone capture with a single command") therefore stays open after this milestone. **This is worth raising with Ved: it is the one part of the spec that nothing in milestones 1 to 8 explicitly schedules, and it is a prerequisite for the three real scenes in milestone 7.**
 - **The container format** is milestone 5, deferred by the spec's own decision. `.splat` is the milestone 1 output, as the spec says it should be for weekends 1 to 4.
 
-**Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N", no test described rather than written. Two places deliberately point forward instead of implementing: Task 10 step 4 writes `cfg_source` referencing a field that does not exist yet, and step 5 fixes it. That is sequenced on purpose so the CLI reads cleanly before the config change lands, and both steps are fully specified.
+**Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N", no test described rather than written. Every code block is written to be correct as transcribed, with no step that knowingly writes broken code for a later step to repair.
 
 **Type consistency.** Checked across tasks:
 
