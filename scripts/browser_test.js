@@ -1,7 +1,7 @@
 const { chromium } = require('playwright-core');
 const EXE = 'C:/Users/vedti/AppData/Local/ms-playwright/chromium-1208/chrome-win64/chrome.exe';
 const URL = 'http://127.0.0.1:8123/index.html?url=http://127.0.0.1:8123/truck.splat';
-const OUT = 'C:/Users/vedti/NUS_CS(noOnedrive)/splat-spike/_browser_test.png';
+const OUT = 'C:/Users/vedti/NUS_CS(noOnedrive)/gaussian-splat-compression/_browser_test.png';
 
 (async () => {
   const browser = await chromium.launch({

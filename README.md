@@ -1,6 +1,10 @@
-# splat-spike
+# Gaussian Splat Compression
 
-A feasibility test, not a project. It answers one question:
+A reproducible pipeline for training, benchmarking, compressing and deploying
+3D Gaussian splat scenes. The portfolio claim is the compression work and its
+measured rate-distortion evidence, rather than the act of training a model.
+
+The repository began with a feasibility spike that answered one question:
 
 > Can an RTX 4050 Laptop (6 GB) train a 3D Gaussian Splatting scene, and is the output large
 > enough that compressing it is a problem worth working on?
@@ -102,14 +106,14 @@ struct.
 **2. gsplat 1.5.3 passes GCC flags to MSVC.**
 `gsplat/cuda/_backend.py:177` sets `extra_cflags = [opt_level, "-Wno-attributes"]`. `cl.exe` reads
 that as `/W` followed by `no-attributes` and fails with `D8021: invalid numeric argument`. `-O3` is
-not valid MSVC syntax either. Patched to select flags by platform. Original saved as
-`_backend.py.ORIGINAL.bak`.
+not valid MSVC syntax either. Patched to select flags by platform. The reproducible
+patch is defined in `scripts/patches/definitions.py`.
 
 **3. The pycolmap fork only works on Linux.**
 `pycolmap/scene_manager.py:102` reads COLMAP binaries with `struct.unpack('L', f.read(8))`. Without
 a byte-order prefix, `'L'` uses native width: 8 bytes on Linux LP64, 4 on Windows LLP64. It reads 8
-bytes and tries to unpack 4. Patched five read sites to `'<Q'` and `'<IiQQ'`. Original saved as
-`_scene_manager.py.ORIGINAL.bak`.
+bytes and tries to unpack 4. Patched five read sites to `'<Q'` and `'<IiQQ'`. The reproducible
+patch is defined in `scripts/patches/definitions.py`.
 
 The write path in that same file, lines 313 to 421, still uses native `'L'` and is still broken on
 Windows. Nothing here writes COLMAP binaries, so it does not matter yet.
@@ -211,5 +215,5 @@ not feasibility:
 2. Three quarters of the file is SH coefficients, so that is where compression work should start.
 3. Phones are still untested, and phones are where "send someone a link" actually gets judged.
 
-This was a spike during an ideation discussion. No design has been agreed and no project code has
-been written.
+The feasibility spike is complete. The implementation now follows the agreed design in
+`docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`.

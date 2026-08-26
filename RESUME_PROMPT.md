@@ -1,7 +1,7 @@
 # Resume prompt
 
 Paste everything below the line into a fresh coding agent session started in
-`C:\Users\vedti\NUS_CS(noOnedrive)\splat-spike`. It is written to be self-contained.
+`C:\Users\vedti\NUS_CS(noOnedrive)\gaussian-splat-compression`. It is written to be self-contained.
 
 ---
 
@@ -23,11 +23,11 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Branch `milestone-1-scripted-pipeline`, HEAD `446701e`, working tree clean, nothing pushed.
+Branch `milestone-1-scripted-pipeline`, with Task 3 complete at `78817e4` before the repository rename documentation commit. Nothing on this branch has been pushed.
 
-Tasks 1, 2 and 3 are implemented. Tasks 1 and 2 passed review. **Task 3's review has not been dispatched: that is your first action.** Tasks 4 through 11 have not started, but their briefs are already extracted into the workspace directory as `task-N-brief.md`.
+Tasks 1, 2 and 3 are implemented and passed review. **Task 4 is the first unfinished task.** Tasks 4 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
-Current suite: `15 passed, 1 deselected` fast tier, `9 passed` full tier.
+Current suite: `17 passed, 1 deselected` fast tier, `18 passed, 1 warning` complete tier.
 
 ## How to work
 
@@ -54,10 +54,10 @@ Do not `git push` and do not touch `master` without asking. Both need explicit p
 **`scripts\env.bat` only affects the shell that runs it, and tool calls do not share shell state.** Running `env.bat` in one call and a test in the next silently fails, because the second call sees none of it. Chain both into one `cmd` invocation:
 
 ```
-cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -m gpu -q"
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Use `-m gpu`, not `-m ""`. A command-line `-m` overrides the `-m 'not gpu'` in `addopts`, and `-m gpu` avoids nesting empty quotes inside an already-quoted `cmd /c` string.
+Use `-o addopts=` for the complete suite. `-m gpu` selects only GPU-marked tests and leaves the CPU tests deselected.
 
 **Do not verify that setup by adding `echo %CUDA_HOME%` to the same `cmd /c` line.** `cmd` expands variables when it parses the line, before `env.bat` has run, so it prints the literal text `%CUDA_HOME%` and looks like a failure when everything is fine. Check from a child Python process instead, which sees the real environment.
 
@@ -74,14 +74,14 @@ Use `-m gpu`, not `-m ""`. A command-line `-m` overrides the `-m 'not gpu'` in `
 ## Health check before you start
 
 ```
-cd "C:\Users\vedti\NUS_CS(noOnedrive)\splat-spike"
+cd "C:\Users\vedti\NUS_CS(noOnedrive)\gaussian-splat-compression"
 git status --short
 git log --oneline -5
 .venv\Scripts\python.exe -m pytest -q
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected: clean tree, HEAD `446701e`, `15 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 4: clean tree, Task 3 present at `78817e4`, `17 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -100,15 +100,14 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **(do this first) Dispatch or perform the Task 3 review** over the diff range `c2e6e2b..446701e`. It is the only task that has not passed a review gate. The brief and report are in the workspace directory.
-2. **Task 4, run configuration.** Complete code in the brief.
-3. **Task 5, scene validation and output paths.** Complete code in the brief.
-4. **Task 6, `GaussianCloud` and `.ply` I/O.** This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
-5. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU.
-6. **Task 8, run manifest.** Complete code in the brief.
-7. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
-8. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
-9. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
+1. **Task 4, run configuration.** Complete code in the brief.
+2. **Task 5, scene validation and output paths.** Complete code in the brief.
+3. **Task 6, `GaussianCloud` and `.ply` I/O.** This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
+4. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU.
+5. **Task 8, run manifest.** Complete code in the brief.
+6. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
+7. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
+8. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
 
 Also fold in the two deferred minor issues at Task 11: `requirements.lock.txt` records the package as a `git+ssh` URL to a private remote, which nobody without SSH keys can install from, and `plyfile` is pinned `>=1.0` so it resolved to 1.1.3 rather than the 1.1.5 the spike ran on. Both are documented in `HANDOFF.md`.
 
@@ -116,4 +115,4 @@ Also fold in the two deferred minor issues at Task 11: `requirements.lock.txt` r
 
 Make routine calls yourself and record them. If you find something in the plan that is wrong, say so and fix it rather than implementing a known defect: three plan defects were already found and fixed this way before any code was written, and a fourth was found during Task 3 when the patch machinery corrupted a live library file. That history is in the ledger and is worth reading, because it shows the kind of mistake this codebase invites.
 
-Stop and ask Ved only for: pushing, anything touching `master`, anything destructive or irreversible, and decisions that are genuinely his. Two of those are already open and are noted in `HANDOFF.md`: how phone captures get COLMAP poses, and whether to rename the repository from `splat-spike`.
+Stop and ask Ved only for: pushing, anything touching `master`, anything destructive or irreversible, and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses.

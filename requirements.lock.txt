@@ -50,7 +50,7 @@ rich==14.3.4
 scikit-learn==1.9.0
 scipy==1.17.1
 six==1.17.0
--e git+ssh://git@github.com/VedJoshi/splat-spike.git@d9ca9958a10edce21c748af69807cc699ce9e84a#egg=splatpipe
+-e git+ssh://git@github.com/VedJoshi/gaussian-splat-compression.git@d9ca9958a10edce21c748af69807cc699ce9e84a#egg=splatpipe
 splines==0.3.3
 sympy==1.14.0
 tensorboard==2.21.0
