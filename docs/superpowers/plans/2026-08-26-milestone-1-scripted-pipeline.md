@@ -24,6 +24,13 @@ Copied from the spec and from the verified spike environment. Every task inherit
 - **`CUDA_HOME` must be a v12.8 install.** v12.9 is first on PATH by default and does not match the torch cu128 build.
 - **`TORCH_CUDA_ARCH_LIST=8.9`, `MAX_JOBS=4`.**
 - **Anything that imports gsplat must run inside a vcvars64 shell** (VS Build Tools 2019 16.11). gsplat's backend runs `where cl` on import even when the extension is already compiled and cached.
+- **`scripts\env.bat` only affects the shell that runs it**, and neither the PowerShell nor the Bash tool keeps shell state between calls. So `env.bat` in one call followed by a test in the next call does not work: the second call sees none of it. Chain both into a single `cmd` invocation instead. Verified working:
+
+  ```
+  cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest tests/test_patches.py -m gpu -q"
+  ```
+
+  Note `-m gpu` rather than `-m ""`. Both select the GPU tests, since a command-line `-m` overrides the `-m 'not gpu'` in `addopts`, and `-m gpu` avoids nesting empty quotes inside an already-quoted `cmd /c` string. Do not try to `echo %CUDA_HOME%` in the same `cmd /c` line to check the result: `cmd` expands variables when it parses the line, before `env.bat` has run, so it prints the literal text and looks like a failure. Check from a child process instead, which sees the real environment.
 - **`GaussianCloud` and everything that consumes it is numpy only, no torch.** The spec makes this a hard rule for `compress/`; it starts here, so the compression tests stay fast and CPU-only.
 - **Every `struct` format string carries an explicit byte order and width** (`'<Q'`, never `'L'`). Native `'L'` is 4 bytes on Windows LLP64 and 8 on Linux LP64. That is upstream bug 3 and there is no reason to reintroduce it.
 - **The pipeline is a pure function of `(input directory, config) -> artifacts`.** No interactive state, no hardcoded paths, nothing read from the current working directory.
