@@ -1,0 +1,17 @@
+# The spike's run, expressed as configuration. See README.md for the measured result.
+name = "truck"
+
+[train]
+max_steps = 7000
+cap_max = 1000000
+data_factor = 1
+test_every = 8
+strategy = "mcmc"
+# No seed key. simple_trainer.py hardcodes set_random_seed(42 + local_rank)
+# and exposes no flag for it.
+
+[export]
+# Morton gives spatial locality, which groups similar bytes together and is a
+# compression lever. "size_opacity" is what the spike used and what
+# antimatter15's converter does; it front-loads the biggest splats instead.
+order = "morton"
