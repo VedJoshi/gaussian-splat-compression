@@ -31,6 +31,10 @@ Copied from the spec and from the verified spike environment. Every task inherit
   ```
 
   Note `-m gpu` rather than `-m ""`. Both select the GPU tests, since a command-line `-m` overrides the `-m 'not gpu'` in `addopts`, and `-m gpu` avoids nesting empty quotes inside an already-quoted `cmd /c` string. Do not try to `echo %CUDA_HOME%` in the same `cmd /c` line to check the result: `cmd` expands variables when it parses the line, before `env.bat` has run, so it prints the literal text and looks like a failure. Check from a child process instead, which sees the real environment.
+
+  Run this through the PowerShell tool, not the Bash tool. Git Bash rewrites the quoted `cmd /c` argument, and the result is an interactive `cmd` banner with the command never run. It exits cleanly and prints no error, so it reads as a command that did nothing rather than as a failure.
+
+  `scripts\setup_env.py --check` needs the same treatment. It imports gsplat to resolve a patch target, so outside a vcvars64 shell it fails inside torch's `cpp_extension` on `where cl`.
 - **`GaussianCloud` and everything that consumes it is numpy only, no torch.** The spec makes this a hard rule for `compress/`; it starts here, so the compression tests stay fast and CPU-only.
 - **Every `struct` format string carries an explicit byte order and width** (`'<Q'`, never `'L'`). Native `'L'` is 4 bytes on Windows LLP64 and 8 on Linux LP64. That is upstream bug 3 and there is no reason to reintroduce it.
 - **The pipeline is a pure function of `(input directory, config) -> artifacts`.** No interactive state, no hardcoded paths, nothing read from the current working directory.
@@ -1378,7 +1382,7 @@ This is the load-bearing interface of the whole project. `compress/` in mileston
 **Interfaces:**
 - Consumes: `splatpipe.errors.ArtifactError`
 - Produces:
-  - `GaussianCloud(means, scales, quats, opacities, sh0, shN)` -- a frozen dataclass of numpy arrays with shapes `(N,3) (N,3) (N,4) (N,) (N,3) (N,K,3)`, all float32
+  - `GaussianCloud(means, scales, quats, opacities, sh0, shN)`, a frozen dataclass of numpy arrays with shapes `(N,3) (N,3) (N,4) (N,) (N,3) (N,K,3)`, all float32
   - `len(cloud) -> int`, `cloud.sh_degree -> int`, `cloud.validate() -> None`, `cloud.take(idx) -> GaussianCloud`
   - `read_ply(path) -> GaussianCloud`, `write_ply(cloud, path) -> None`
   - `SH_C0 = 0.28209479177387814`
@@ -1669,7 +1673,7 @@ Expected: 7 passed.
 
 - [ ] **Step 5: Check it against the spike's real output**
 
-This is a one-off sanity check, not a test -- the 225 MiB `.ply` is gitignored, so it cannot live in the suite.
+This is a one-off sanity check, not a test. The 225 MiB `.ply` is gitignored, so it cannot live in the suite.
 
 ```
 scripts\env.bat
@@ -1781,8 +1785,8 @@ def test_matches_gsplat_export_splats_byte_for_byte():
     """The authority on this format is the library the viewer was built for.
 
     gsplat.exporter imports without the CUDA backend, so this needs no GPU.
-    Positions are drawn from a continuous distribution, so Morton ties -- where
-    argsort order would be implementation-defined -- do not arise.
+    Positions are drawn from a continuous distribution, so Morton ties, where
+    argsort order would be implementation-defined, do not arise.
     """
     torch = pytest.importorskip("torch")
     from gsplat.exporter import export_splats
@@ -2306,7 +2310,7 @@ Create `tests/fixtures/tiny_scene.py`:
 
 Cameras sit on a ring looking at the origin, and the images are the 3D points
 projected into each view as coloured dots. It is not a good reconstruction and
-it does not need to be -- it exists so the end-to-end test exercises the real
+it does not need to be. It exists so the end-to-end test exercises the real
 trainer without a 7 minute wait.
 
 The defaults are chosen to clear gsplat's minimums: at least 8 images so that
@@ -2906,7 +2910,7 @@ Expected: `32000000 32000000`.
 git rm _gsplat_smoke.py
 ```
 
-Keep `_vram_sampler.py` -- it measures whole-board usage via nvidia-smi, which nothing else does, and milestone 2 will want it. Move it: `git mv _vram_sampler.py scripts/vram_sampler.py`.
+Keep `_vram_sampler.py`. It measures whole-board usage via nvidia-smi, which nothing else does, and milestone 2 will want it. Move it: `git mv _vram_sampler.py scripts/vram_sampler.py`.
 
 - [ ] **Step 6: Update the README**
 
