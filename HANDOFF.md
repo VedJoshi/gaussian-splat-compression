@@ -54,7 +54,16 @@ Two things were broken during this session and are now fixed. Both are recorded 
 
 ## Next Steps
 
-1. **(P0) Implement and review Task 6.** The brief is already extracted as `task-6-brief.md`. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
+1. **(P0) Implement and review Task 6.** The brief is already extracted as `task-6-brief.md`. Not started: it was dispatched once and stopped immediately, and nothing landed. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
+
+   Its preflight is already done and its claims hold. A 59-field ply written with the installed plyfile measures exactly 236 bytes per Gaussian, in `binary_little_endian`, with the header terminated by a single newline. `results/truck_spike/ply/point_cloud_6999.ply` is 236,001,478 bytes, declares 1000000 vertices, and carries exactly the 59 properties in the order the brief's `write_ply` emits. Channel-major comes from `gsplat/exporter.py`, where `export_splats` does `shN.permute(0, 2, 1).reshape(N, -1)` before writing.
+
+   Two rulings apply to the brief when it is picked up:
+
+   - **Step 5's sanity check must not call `scripts\env.bat`.** `splatpipe.gaussians` imports only numpy, plyfile and `splatpipe.errors`. Nothing in it touches gsplat, so no build shell is involved and running one costs a confusing failure for nothing.
+   - **In `test_validate_rejects_a_length_mismatch`, `match="means"` should be `match="scales has 7 rows"`.** The test truncates `means` to 5 rows and leaves the rest at 7, so `validate` takes `n` from `means` and raises on `scales`. The assertion passes only because the message happens to end with "but means has 5".
+
+   One item belongs to Task 7 rather than Task 6: `export_splats` drops rows containing NaN or Inf before writing and the brief's `write_ply` does not, so Task 7's byte-for-byte comparison against `gsplat.exporter` would diverge on any fixture carrying a NaN.
 2. **(P1) Continue Tasks 6 through 11 in order.** Briefs are pre-extracted. Use the cheap model tier for tasks whose brief carries complete code (6, 8) and a standard model for those needing judgment across files (9, 10, 11). Task 7's `.splat` writer has the most valuable test in the milestone: a byte-for-byte comparison against `gsplat.exporter.export_splats`, which imports without the CUDA backend and so runs in the fast tier.
 3. **(P1) Task 11 is the falsification step.** It reruns the truck scene through the new CLI and compares against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly. Metrics should match to about two decimal places, since CUDA reductions are not bit-reproducible. A PSNR differing by more than about 0.1 means something is genuinely different.
 4. **(P2) Fold the two deferred dependency-record issues into Task 11**: the non-replayable `git+ssh` lock file line and the loose `plyfile` pin.
