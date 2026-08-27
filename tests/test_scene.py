@@ -47,8 +47,15 @@ def test_reports_every_missing_piece_at_once(tmp_path):
 
 
 def test_rejects_a_scene_with_too_few_images(tmp_path):
-    with pytest.raises(SceneError, match="at least"):
+    """At data_factor=1, `images/` and the resolved images_dir are the same
+    folder, so this must be reported once, not once per name the folder is
+    known by. A dedup that gets simplified away regresses this silently:
+    `pytest.raises(match=...)` is a substring search and does not notice a
+    duplicated line.
+    """
+    with pytest.raises(SceneError, match="at least") as excinfo:
         SceneLayout.discover(build_scene(tmp_path, n_images=3))
+    assert str(excinfo.value).count("\n  - ") == 1
 
 
 def test_factor_two_requires_the_downscaled_folder(tmp_path):
@@ -63,18 +70,12 @@ def test_factor_two_uses_the_downscaled_folder(tmp_path):
 
 
 def test_factor_two_rejects_a_thin_plain_folder(tmp_path):
-    """COLMAP records its image filenames against `images/`, and gsplat's
-    colmap loader zips sorted(images/) with sorted(images_<factor>/) to map
-    between the two (_gsplat_repo/examples/datasets/colmap.py, around line
-    197, colmap_to_image). If `images/` is thin while `images_2/` is well
-    populated, that zip truncates silently and a later lookup by a COLMAP
-    image name raises a bare KeyError deep inside gsplat. The minimum image
-    count applies to both folders so this is caught here instead, naming
-    `images/` specifically since that is the folder actually short.
+    """The specific case scene.py's colmap_to_image comment describes:
+    `images/` thin, `images_2/` well populated.
     """
     build_scene(tmp_path, factor=2, plain_images=3)
     with pytest.raises(SceneError) as excinfo:
         SceneLayout.discover(tmp_path, data_factor=2)
     message = str(excinfo.value)
-    assert str(tmp_path / "images") in message
-    assert "images_2" not in message
+    assert f"{tmp_path / 'images'} holds 3 images" in message
+    assert message.count("\n  - ") == 1
