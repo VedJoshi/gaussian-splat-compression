@@ -1,10 +1,16 @@
 # Handoff: Milestone 1, scripted splat pipeline: 2026-08-27
 
+## Working agreement
+
+**One task at a time.** Implement a single task, take it through its review, record the outcome, then stop and report. Do not chain into the next task, and do not dispatch the next task's implementer while the current one is still under review. Ved has asked for this directly. The point is that he sees each task land and can redirect before the next one starts, which matters more here than throughput: this project runs on weekends with gaps of up to two weeks between sessions.
+
+Push only when asked. Nothing touches `master` without asking.
+
 ## Goal
 
 Turn the manual Gaussian-splatting spike in this repository into `splatpipe run <scene-dir> --config <cfg> --out <dir>`: one reproducible command that takes a COLMAP scene, trains it, and emits a `.ply`, a `.splat`, and a manifest recording exactly what produced them. This is milestone 1 of an eight-milestone portfolio project whose real subject is splat compression. The design doc is `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md` and the implementation plan is `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`.
 
-Work is being executed task by task by subagents, with a review after each. Progress is tracked in a ledger, described under Context.
+Work is being executed task by task by subagents, with a review after each, one task per session turn. Progress is tracked in a ledger, described under Context.
 
 ## Completed
 
@@ -21,6 +27,12 @@ Five of eleven tasks are done. All commits are on branch `milestone-1-scripted-p
 - **numpy drift corrected.** The venv had drifted to 2.4.6 against gsplat's `numpy<2.0.0` requirement, so the environment did not match what `README.md` documented. Now 1.26.4, enforced by a test.
 - **Repository renamed.** The local directory and private GitHub repository are now `gaussian-splat-compression`. The Python package and CLI remain `splatpipe`.
 - **Suite state**: `43 passed, 1 deselected` in the fast tier; `44 passed, 1 warning` in the complete tier.
+
+## What happened in the last session
+
+Task 5 was implemented, reviewed, fixed once and verified. The review's one real finding is worth knowing about, because it is the failure mode this suite invites: the folder deduplication was not pinned by any test, and the reviewer proved it by mutation rather than by argument. With `dict.fromkeys` removed, the problem line appeared twice and the suite stayed green, because `pytest.raises(match=...)` is a search and does not count occurrences. Commit `0468db0` asserts the number of problems reported instead. The same shape was then found sitting in Task 6's brief and is recorded as a ruling under Next Steps.
+
+Task 6 was dispatched once and stopped immediately at Ved's instruction, before any work landed. Its implementer had written `tests/test_gaussians.py` and nothing else; that file was removed, because without `src/splatpipe/gaussians.py` it breaks pytest collection. Task 6 is not started. Its preflight was already finished, so it is recorded under Next Steps rather than thrown away.
 
 ## In Progress
 
@@ -72,7 +84,7 @@ Two things were broken during this session and are now fixed. Both are recorded 
 
 ## Context
 
-- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 5 is complete at `0468db0`, before this handoff refresh. Nothing on this branch has been pushed.
+- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 5 is complete at `0468db0`, before this handoff refresh. The branch is pushed to `origin` and tracks `origin/milestone-1-scripted-pipeline`. `master` is untouched and there is no pull request.
 - **Ledger**: `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. This is the authoritative record of what is done, every ruling made, and why. Read it before dispatching anything. It is git-ignored, so `git clean -fdx` would destroy it; recover from `git log` if that happens.
 - **Task briefs and reports**: same directory, `task-N-brief.md` and `task-N-report.md`. Briefs for all 11 tasks are already extracted.
 - **Key files created so far**: `pyproject.toml`, `src/splatpipe/{__init__,errors,env,config,scene,paths}.py`, `configs/truck.toml`, `scripts/patches/{__init__,definitions}.py`, `scripts/setup_env.py`, `tests/{test_package,test_env,test_patches,test_config,test_scene,test_paths}.py`, `requirements.lock.txt`.

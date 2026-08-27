@@ -23,7 +23,7 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Branch `milestone-1-scripted-pipeline`, with Task 5 complete at `0468db0` before the handoff refresh. Nothing on this branch has been pushed.
+Branch `milestone-1-scripted-pipeline`, with Task 5 complete at `0468db0` before the handoff refresh. The branch is pushed and tracks `origin/milestone-1-scripted-pipeline`. `master` is untouched.
 
 Tasks 1 through 5 are implemented and passed review. **Task 6 is the first unfinished task.** Tasks 6 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
@@ -33,7 +33,9 @@ Current suite: `43 passed, 1 deselected` fast tier, `44 passed, 1 warning` compl
 
 ## How to work
 
-Execute tasks one at a time, in order. For each task:
+**One task per session turn.** Execute a single task, take it through its review, record the outcome in the ledger, then stop and report to Ved. Do not chain into the next task and do not dispatch the next implementer while the current task is still under review. Ved has asked for this directly, and the reason is that this project runs on weekends with gaps of up to two weeks: he needs to see each task land and be able to redirect before the next one starts.
+
+For the task you are on:
 
 1. Read `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-N-brief.md`. It carries the complete code, exact values, and exact test assertions. Transcribe them; do not improvise names, versions, or assertions.
 2. Work test-first. Write the failing test, run it, confirm it fails for the stated reason, implement, run again. Do not skip the confirm-it-fails step.
@@ -47,7 +49,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01YUgbMd3mogAV1hCkA2xkZr
 ```
 
-Do not `git push` and do not touch `master` without asking. Both need explicit permission from Ved.
+The branch is pushed and tracks `origin/milestone-1-scripted-pipeline`. Do not push again and do not touch `master` without asking. Both need explicit permission from Ved, each time.
 
 ## Environment: the parts that will waste your time if you do not know them
 
@@ -104,7 +106,7 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **Task 6, `GaussianCloud` and `.ply` I/O.** This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
+1. **Task 6, `GaussianCloud` and `.ply` I/O.** Its preflight is already done and two rulings apply to the brief. Both are written out in `HANDOFF.md` under Next Steps, step 1. Read them before you start. This is the load-bearing interface of the whole project: milestone 3's compressor consumes it and milestone 2's benchmark renders from it. Two traps it exists to contain, both verified against real output: `scales` are logarithms and `opacities` are logits exactly as stored in the `.ply`, converted by nobody on read; and `f_rest` is channel-major, so `f_rest_0..14` are red, `15..29` green, `30..44` blue. Reading those in the obvious order produces wrong colours rather than an error.
 2. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU.
 3. **Task 8, run manifest.** Complete code in the brief.
 4. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
