@@ -77,6 +77,44 @@ def test_valid_input_emits_no_runtime_warnings():
         encode_splat(make_cloud(n=64))
 
 
+def test_extreme_finite_opacities_encode_without_warnings():
+    cloud = make_cloud(n=2)
+    limit = np.finfo(np.float32).max
+    cloud.opacities[:] = (limit, -limit)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        raw = encode_splat(cloud, order="none")
+
+    assert raw[27] == 255
+    assert raw[32 + 27] == 0
+
+
+def test_large_finite_scales_have_warning_free_size_opacity_ordering():
+    scales = np.array(((80, 80, 80), (79, 79, 79), (78, 78, 78)), dtype=np.float32)
+    opacities = np.zeros(3, dtype=np.float32)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        order = size_opacity_order(scales, opacities)
+
+    np.testing.assert_array_equal(order, np.array((0, 1, 2)))
+
+
+def test_extreme_finite_sh0_saturates_without_warnings():
+    cloud = make_cloud(n=2)
+    limit = np.finfo(np.float32).max
+    cloud.sh0[0] = limit
+    cloud.sh0[1] = -limit
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        raw = encode_splat(cloud, order="none")
+
+    assert raw[24:27] == b"\xff\xff\xff"
+    assert raw[32 + 24 : 32 + 27] == b"\x00\x00\x00"
+
+
 @pytest.mark.parametrize("field", ("means", "scales", "quats", "opacities", "sh0", "shN"))
 @pytest.mark.parametrize("invalid", (np.nan, np.inf))
 def test_nonfinite_fields_are_rejected(field, invalid):

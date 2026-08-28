@@ -46,8 +46,8 @@ def morton_order(means: np.ndarray) -> np.ndarray:
 
 def size_opacity_order(scales: np.ndarray, opacities: np.ndarray) -> np.ndarray:
     """Return the biggest visible splats first for progressive loading."""
-    weight = np.exp(scales.sum(axis=1)) / (1 + np.exp(-opacities))
-    return np.argsort(-weight)
+    log_weight = scales.sum(axis=1) - np.logaddexp(0, -opacities)
+    return np.argsort(-log_weight)
 
 
 def _validate_splat_inputs(cloud: GaussianCloud) -> None:
@@ -86,8 +86,10 @@ def encode_splat(cloud: GaussianCloud, order: str = "morton") -> bytes:
     scales = np.ascontiguousarray(np.exp(cloud.scales, dtype=np.float64), dtype="<f4")
 
     rgb = cloud.sh0 * SH_C0 + 0.5
-    alpha = 1.0 / (1.0 + np.exp(-cloud.opacities))
-    color = np.clip(np.concatenate([rgb, alpha[:, None]], axis=1) * 255, 0, 255).astype(np.uint8)
+    with np.errstate(over="ignore"):
+        alpha = 1.0 / (1.0 + np.exp(-cloud.opacities))
+        color_values = np.concatenate([rgb, alpha[:, None]], axis=1) * 255
+    color = np.clip(color_values, 0, 255).astype(np.uint8)
 
     quats = cloud.quats / np.linalg.norm(cloud.quats, axis=1, keepdims=True)
     rotation = np.clip(quats * 128 + 128, 0, 255).astype(np.uint8)
