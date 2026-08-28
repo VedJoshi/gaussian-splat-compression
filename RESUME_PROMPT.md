@@ -23,7 +23,7 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Branch `milestone-1-scripted-pipeline`, with Task 7 complete at `05f64c0` before the handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Tasks 6 and 7 plus their handoff refreshes are local and unpushed. `master` is untouched.
+Branch `milestone-1-scripted-pipeline`, with Task 7 complete at `05f64c0`. The concise default-branch README was merged forward at `458686e`. Both local branches are synchronized with their origin refs after the handoff refresh. The milestone branch remains separate from `master` because four tasks are unfinished.
 
 Tasks 1 through 7 are implemented and passed review. **Task 8 is the first unfinished task.** Tasks 8 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
@@ -51,7 +51,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01YUgbMd3mogAV1hCkA2xkZr
 ```
 
-The branch tracks `origin/milestone-1-scripted-pipeline`, but Tasks 6 and 7 plus their handoff refreshes are local. Do not push and do not touch `master` without asking. Both need explicit permission from Ved, each time.
+Ved authorized routine pushes and default-branch documentation updates on 2026-08-28. Do not merge the milestone branch into `master` until all eleven tasks and the final end-to-end reproduction have passed.
 
 ## Environment: the parts that will waste your time if you do not know them
 
@@ -89,7 +89,7 @@ git log --oneline -5
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected before Task 8: clean tree, Task 7 present at `05f64c0` before the handoff refresh, `76 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 8: clean tree, Task 7 present at `05f64c0`, the README merge present at `458686e`, `76 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -119,4 +119,4 @@ Also fold in the two deferred minor issues at Task 11: `requirements.lock.txt` r
 
 Make routine calls yourself and record them. If you find something in the plan that is wrong, say so and fix it rather than implementing a known defect: three plan defects were already found and fixed this way before any code was written, and a fourth was found during Task 3 when the patch machinery corrupted a live library file. That history is in the ledger and is worth reading, because it shows the kind of mistake this codebase invites.
 
-Stop and ask Ved only for: pushing, anything touching `master`, anything destructive or irreversible, and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses.
+Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses.

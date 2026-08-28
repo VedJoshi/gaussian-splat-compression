@@ -4,7 +4,9 @@
 
 **One task at a time.** Implement a single task, take it through its review, record the outcome, then stop and report. Do not chain into the next task, and do not dispatch the next task's implementer while the current one is still under review. Ved has asked for this directly. The point is that he sees each task land and can redirect before the next one starts, which matters more here than throughput: this project runs on weekends with gaps of up to two weeks between sessions.
 
-Push only when asked. Nothing touches `master` without asking.
+Ved authorized routine pushes and default-branch documentation updates on
+2026-08-28. Do not merge the milestone branch into `master` until its end-to-end
+criterion has passed.
 
 ## Goal
 
@@ -14,7 +16,7 @@ Work is being executed task by task by subagents, with a review after each, one 
 
 ## Completed
 
-Seven of eleven tasks are done. All commits are on branch `milestone-1-scripted-pipeline`, which forked from `master` at `a70668b`. The working tree is clean.
+Seven of eleven tasks are done. All implementation commits are on branch `milestone-1-scripted-pipeline`, which forked from `master` at `a70668b`. The working tree is clean.
 
 - **`a70668b` (on `master`)**: the implementation plan, 11 tasks, 76 steps.
 - **`d9ca995`**: fixes for three defects found by scanning the plan against itself before any code was written. See Key Decisions.
@@ -28,6 +30,7 @@ Seven of eleven tasks are done. All commits are on branch `milestone-1-scripted-
 - **Task 7, `8a5e8ed`, `5ce9388`, then `05f64c0`**: the numpy-only `.splat` writer with Morton, size-opacity and input ordering. Exact records are checked against gsplat with representable scales, randomized scale fields are bounded to 2 ULP, and numeric edge cases fail deliberately or saturate without warnings. The superseded `_ply_to_splat.py` is deleted. Reviewed clean after two fix rounds, with two Minors deferred.
 - **numpy drift corrected.** The venv had drifted to 2.4.6 against gsplat's `numpy<2.0.0` requirement, so the environment did not match what `README.md` documented. Now 1.26.4, enforced by a test.
 - **Repository renamed.** The local directory and private GitHub repository are now `gaussian-splat-compression`. The Python package and CLI remain `splatpipe`.
+- **Repository front page rewritten.** `da1c671` replaces the old spike narrative on `master` with a concise project overview, measured baseline, honest status, roadmap and development checks. `458686e` merges that documentation forward into the milestone branch.
 - **Suite state**: `76 passed, 1 deselected` in the fast tier; `77 passed, 1 warning` in the complete tier.
 
 ## What happened in the last session
@@ -35,6 +38,8 @@ Seven of eleven tasks are done. All commits are on branch `milestone-1-scripted-
 Task 7 was implemented test-first, then completed two review fix rounds. The original all-random byte-equality test exposed a real cross-library limit: NumPy and Torch `exp` can differ in the final float32 bits. Production remains numpy-only. Full records compare exactly when log-scales are zero, while randomized scale fields must stay within 2 ULP and every other byte remains exact. Review then found overflow warnings in finite extreme opacity and size ordering; controller probing found the same issue in saturated SH colors. The fix uses log-domain size-opacity ordering and scoped saturation handling. A mutation check proves the large-scale regression test catches the old `Inf`-collapsed ordering.
 
 The real truck cloud encodes as exactly 32,000,000 bytes for 1,000,000 Gaussians. Its Morton-ordered SHA-256 is `3fd1a045aed8498eae1b11b900d12c9941c64791f05b617e0306c2c4e09926e3`.
+
+Repository maintenance then replaced the 329-line spike-style README with a concise project-facing document on `master` and merged it forward. The milestone branch was assessed against its own plan and was not merged into `master`: Tasks 8 through 11 and the final truck reproduction are still required.
 
 ## In Progress
 
@@ -81,7 +86,7 @@ Two things were broken during this session and are now fixed. Both are recorded 
 
 ## Context
 
-- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 7 is complete at `05f64c0`, before this handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Tasks 6 and 7 plus their handoff refreshes are local and unpushed. `master` is untouched and there is no pull request.
+- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 7 is complete at `05f64c0`; the default-branch README update is merged forward at `458686e`. Both local branches are synchronized with their origin refs after this handoff refresh. The milestone branch is deliberately unmerged because four tasks remain. There is no pull request.
 - **Ledger**: `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. This is the authoritative record of what is done, every ruling made, and why. Read it before dispatching anything. It is git-ignored, so `git clean -fdx` would destroy it; recover from `git log` if that happens.
 - **Task briefs and reports**: same directory, `task-N-brief.md` and `task-N-report.md`. Briefs for all 11 tasks are already extracted.
 - **Key files created so far**: `pyproject.toml`, `src/splatpipe/{__init__,errors,env,config,scene,paths,gaussians}.py`, `src/splatpipe/formats/{__init__,splat}.py`, `configs/truck.toml`, `scripts/patches/{__init__,definitions}.py`, `scripts/setup_env.py`, `tests/{test_package,test_env,test_patches,test_config,test_scene,test_paths,test_gaussians,test_splat_format}.py`, `requirements.lock.txt`.
