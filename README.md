@@ -256,7 +256,6 @@ are defined as exact search and replace pairs in
 | `docs/superpowers/plans/` | Implementation plans |
 | `LEARNING.md` | Notes on the 3D vision background |
 | `SPIKE_LOG.txt` | Full trace of the original feasibility spike, every command and failure with root causes |
-| `_ply_to_splat.py` | Vectorised `.ply` to `.splat`. The upstream converter loops per vertex and is unusable at 1M Gaussians |
 | `_get_data.py` | Downloads and prepares the truck scene |
 | `_vram_sampler.py` | Samples nvidia-smi, measuring the whole board rather than PyTorch's allocator |
 | `_browser_test.png` | Screenshot of the scene rendering in a browser |
