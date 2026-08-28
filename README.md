@@ -35,12 +35,13 @@ Implemented so far, on branch `milestone-1-scripted-pipeline`:
 | `splatpipe.scene` | COLMAP scene validation before GPU time is spent |
 | `splatpipe.paths` | The run output layout, derived from `(out_root, name)` |
 | `splatpipe.gaussians` | Validated numpy Gaussian cloud plus channel-correct 3DGS `.ply` I/O |
+| `splatpipe.formats.splat` | 32-byte `.splat` encoding with selectable spatial or visual ordering |
 
-Remaining in milestone 1: the `.splat` writer, the run manifest, a synthetic
-COLMAP fixture, the training stage and CLI, and a reproduction of the truck
-baseline through the finished CLI.
+Remaining in milestone 1: the run manifest, a synthetic COLMAP fixture, the
+training stage and CLI, and a reproduction of the truck baseline through the
+finished CLI.
 
-Test suite: 49 tests in the fast tier, 50 including the GPU-marked tier.
+Test suite: 76 tests in the fast tier, 77 including the GPU-marked tier.
 
 ## Measured baseline
 

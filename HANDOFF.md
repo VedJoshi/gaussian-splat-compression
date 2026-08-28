@@ -14,7 +14,7 @@ Work is being executed task by task by subagents, with a review after each, one 
 
 ## Completed
 
-Six of eleven tasks are done. All commits are on branch `milestone-1-scripted-pipeline`, which forked from `master` at `a70668b`. The working tree is clean.
+Seven of eleven tasks are done. All commits are on branch `milestone-1-scripted-pipeline`, which forked from `master` at `a70668b`. The working tree is clean.
 
 - **`a70668b` (on `master`)**: the implementation plan, 11 tasks, 76 steps.
 - **`d9ca995`**: fixes for three defects found by scanning the plan against itself before any code was written. See Key Decisions.
@@ -25,26 +25,31 @@ Six of eleven tasks are done. All commits are on branch `milestone-1-scripted-pi
 - **Task 4, `9859804`, then `1d2f7e6`**: frozen run configuration, strict validation, TOML loading, a stable 12-character parameter digest, and `configs/truck.toml`. Review found that integer fields accepted positive floats and booleans. The fix rejects both at the configuration boundary and passed a scoped re-review.
 - **Task 5, `4827973`, then `0468db0`**: `src/splatpipe/scene.py` validates a COLMAP scene before any GPU time is spent, reporting every problem at once, and `src/splatpipe/paths.py` fixes the run output layout that every later task and milestone consumes. Review found that the folder deduplication was not pinned by any test, proved by mutation: removing it made the problem line appear twice and the suite stayed green, because `pytest.raises(match=...)` is a search. The fix asserts the number of problems reported. Reviewed clean after one fix round.
 - **Task 6, `e6b7c60`**: `GaussianCloud`, a frozen numpy struct of arrays, plus validated 3DGS `.ply` reading and writing. Log-scales and logit-opacities remain untransformed, higher-order spherical harmonics preserve gsplat's channel-major disk layout, and the real million-Gaussian truck PLY reads as degree 3 with shape `(1000000, 15, 3)`. Reviewed clean with no findings.
+- **Task 7, `8a5e8ed`, `5ce9388`, then `05f64c0`**: the numpy-only `.splat` writer with Morton, size-opacity and input ordering. Exact records are checked against gsplat with representable scales, randomized scale fields are bounded to 2 ULP, and numeric edge cases fail deliberately or saturate without warnings. The superseded `_ply_to_splat.py` is deleted. Reviewed clean after two fix rounds, with two Minors deferred.
 - **numpy drift corrected.** The venv had drifted to 2.4.6 against gsplat's `numpy<2.0.0` requirement, so the environment did not match what `README.md` documented. Now 1.26.4, enforced by a test.
 - **Repository renamed.** The local directory and private GitHub repository are now `gaussian-splat-compression`. The Python package and CLI remain `splatpipe`.
-- **Suite state**: `49 passed, 1 deselected` in the fast tier; `50 passed, 1 warning` in the complete tier.
+- **Suite state**: `76 passed, 1 deselected` in the fast tier; `77 passed, 1 warning` in the complete tier.
 
 ## What happened in the last session
 
-Task 6 was implemented test-first, reviewed clean and verified against the spike's real 236,001,478-byte PLY. The focused tier has six tests, not the seven stated in one brief step; the brief itself defines six. The length-mismatch regression now pins `scales has 7 rows`, which is the first field inconsistent with the shortened `means` array. The real-file check runs without `scripts\env.bat` because this module imports numpy and plyfile, not gsplat or CUDA code.
+Task 7 was implemented test-first, then completed two review fix rounds. The original all-random byte-equality test exposed a real cross-library limit: NumPy and Torch `exp` can differ in the final float32 bits. Production remains numpy-only. Full records compare exactly when log-scales are zero, while randomized scale fields must stay within 2 ULP and every other byte remains exact. Review then found overflow warnings in finite extreme opacity and size ordering; controller probing found the same issue in saturated SH colors. The fix uses log-domain size-opacity ordering and scoped saturation handling. A mutation check proves the large-scale regression test catches the old `Inf`-collapsed ordering.
+
+The real truck cloud encodes as exactly 32,000,000 bytes for 1,000,000 Gaussians. Its Morton-ordered SHA-256 is `3fd1a045aed8498eae1b11b900d12c9941c64791f05b617e0306c2c4e09926e3`.
 
 ## In Progress
 
-- **Task 7 is next.** It encodes `GaussianCloud` into the 32-byte-per-Gaussian web `.splat` format and verifies the bytes against `gsplat.exporter.export_splats`.
-- **Tasks 7 to 11 are not started.** Briefs for all of them are already extracted into the workspace directory, so each dispatch is immediate. In order: 7 the `.splat` writer, 8 run manifest, 9 synthetic COLMAP scene fixture, 10 training stage and CLI, 11 reproduce the truck scene and update documentation.
+- **Task 8 is next.** It records the resolved configuration, environment, timings, metrics and content-addressed artifacts in `manifest.json`.
+- **Tasks 8 to 11 are not started.** Briefs for all of them are already extracted into the workspace directory, so each dispatch is immediate. In order: 8 run manifest, 9 synthetic COLMAP scene fixture, 10 training stage and CLI, 11 reproduce the truck scene and update documentation.
 
 ## Not Working / Blockers
 
-Nothing is broken. The environment and the working tree are both healthy. Three things are known and deliberately deferred.
+Nothing is broken. The environment and the working tree are both healthy. Five things are known and deliberately deferred.
 
 - **`requirements.lock.txt` is not replayable.** Line 53 records the package as `-e git+ssh://git@github.com/VedJoshi/gaussian-splat-compression.git@d9ca995#egg=splatpipe`. That is pip's normal behaviour for an editable install inside a repo with a remote, but it means anyone without SSH keys for the private remote cannot install from the file, including you on a fresh machine. The file is a record rather than an installer, so nothing downstream breaks. Fix candidate is Task 11, which already touches documentation.
 - **`plyfile` is pinned `>=1.0` and resolved to 1.1.3**, not the 1.1.5 the spike ran on. "Worked when frozen" and "resolves the same next install" are different guarantees. Deferred because tightening pins mid-milestone would invalidate the lock file just captured.
 - **A residual weakness in anchor matching.** `_anchor_positions` in `scripts/patches/__init__.py` requires a line boundary only for anchors that *start with whitespace*. An anchor that does not (all five pycolmap ones) still matches as a plain substring, so it could in principle alias inside a longer expression. The `len(positions) == 1` ambiguity guard catches the realistic cases and the current anchors are unique, so this is theoretical. Worth a look if a third patch is ever added.
+- **Task 7 order-error precedence.** `encode_splat` validates cloud contents before the order string, so an invalid cloud combined with an unknown order raises `ArtifactError` before `ConfigError`. Configuration normally arrives through validated `ExportConfig`; final branch review will decide whether precedence needs changing.
+- **Task 7 empty-cloud behavior.** An empty cloud with Morton ordering reaches NumPy's minimum reduction and raises a raw `ValueError`. Training cannot produce an empty final cloud; final branch review will decide whether empty export returns `b""` or raises a deliberate `ArtifactError`.
 
 Two things were broken during this session and are now fixed. Both are recorded because the reasoning matters more than the outcome.
 
@@ -61,30 +66,32 @@ Two things were broken during this session and are now fixed. Both are recorded 
 - **Export ordering is a config field from day one**: gsplat's `.splat` exporter sorts by Morton code while the spike sorted by size times opacity. Morton gives spatial locality, which is directly a compression lever for milestone 5, so both need to be measurable.
 - **No `seed` config field**: `simple_trainer.py` calls `set_random_seed(42 + local_rank)` and exposes no flag. A seed setting would appear in the manifest and control nothing.
 - **The image-count minimum applies to `images/` as well as `images_<factor>/`**: the plan checked only the folder actually trained on. COLMAP records its filenames against plain `images/`, and gsplat zips the two sorted listings then indexes the result by every COLMAP image name (`_gsplat_repo/examples/datasets/colmap.py`, `colmap_to_image`). A scene with a full `images_2/` and a thin `images/` passed the plan's check and would then have died inside gsplat on a bare `KeyError`.
+- **Invalid Gaussians fail export rather than disappearing.** gsplat silently filters rows containing NaN or Inf. `encode_splat` rejects them, non-normalizable quaternions and unrepresentable scales with `ArtifactError`, preserving the later invariant that `.splat` size is exactly `32 * len(cloud)`.
+- **The gsplat authority check separates layout from `exp` implementation.** Exact full-record equality uses zero log-scales. Random log-scales compare within 2 ULP while every other byte remains exact. Adding Torch to production solely for final-bit equality would violate the numpy-only boundary used by later compression work.
 - **Repository name is `gaussian-splat-compression`**: it states the technical subject and portfolio claim directly. `splatpipe` remains the shorter command and package name.
 
 ## Next Steps
 
-1. **(P0) Implement and review Task 7.** The brief is already extracted as `task-7-brief.md`. Its byte-for-byte comparison with `gsplat.exporter.export_splats` is the most valuable test in the milestone. Carry one preflight observation into the task: gsplat drops rows containing NaN or Inf before writing, while Task 6's `write_ply` preserves them. The comparison fixture is finite, so the planned test remains valid; the Task 7 review must decide and pin the intended non-finite input behavior.
-2. **(P1) Continue Tasks 8 through 11 in order.** Briefs are pre-extracted. Use the cheap model tier for Task 8 and a standard model for tasks needing judgment across files (9, 10, 11).
+1. **(P0) Implement and review Task 8.** The brief is already extracted as `task-8-brief.md` and carries complete code for the run manifest.
+2. **(P1) Continue Tasks 9 through 11 in order.** Briefs are pre-extracted. Use a standard model for these tasks because they need judgment across binary fixtures, training integration and real-scene reproduction.
 3. **(P1) Task 11 is the falsification step.** It reruns the truck scene through the new CLI and compares against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly. Metrics should match to about two decimal places, since CUDA reductions are not bit-reproducible. A PSNR differing by more than about 0.1 means something is genuinely different.
 4. **(P2) Fold the two deferred dependency-record issues into Task 11**: the non-replayable `git+ssh` lock file line and the loose `plyfile` pin.
-5. **(P2) Give the three unowned spike leftovers an owner in Task 11.** `git ls-files` still tracks `SPIKE_LOG.txt`, `_browser_test.png` and `_ply_to_splat.py` at the repository root. Task 11 handles `_get_data.py`, `_gsplat_smoke.py` and `_vram_sampler.py` but says nothing about these three. Recruiters read this repository root.
+5. **(P2) Give the two unowned spike leftovers an owner in Task 11.** `git ls-files` still tracks `SPIKE_LOG.txt` and `_browser_test.png` at the repository root. Task 7 deleted `_ply_to_splat.py`; Task 11 already handles `_get_data.py`, `_gsplat_smoke.py` and `_vram_sampler.py`. Recruiters read this repository root.
 6. **(P2) Decide how phone captures get their poses.** Nothing in milestones 1 to 8 schedules running COLMAP on a raw capture, but success criterion 4 requires it and milestone 7 needs three real scenes. Either it becomes milestone 6.5 or the scenes come from public datasets. This is a decision for Ved, not for an agent.
 
 ## Context
 
-- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 6 is complete at `e6b7c60`, before this handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Task 6 and this refresh are local and unpushed. `master` is untouched and there is no pull request.
+- **Branch**: `milestone-1-scripted-pipeline`, forked from `master` at `a70668b`. Task 7 is complete at `05f64c0`, before this handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Tasks 6 and 7 plus their handoff refreshes are local and unpushed. `master` is untouched and there is no pull request.
 - **Ledger**: `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. This is the authoritative record of what is done, every ruling made, and why. Read it before dispatching anything. It is git-ignored, so `git clean -fdx` would destroy it; recover from `git log` if that happens.
 - **Task briefs and reports**: same directory, `task-N-brief.md` and `task-N-report.md`. Briefs for all 11 tasks are already extracted.
-- **Key files created so far**: `pyproject.toml`, `src/splatpipe/{__init__,errors,env,config,scene,paths,gaussians}.py`, `configs/truck.toml`, `scripts/patches/{__init__,definitions}.py`, `scripts/setup_env.py`, `tests/{test_package,test_env,test_patches,test_config,test_scene,test_paths,test_gaussians}.py`, `requirements.lock.txt`.
+- **Key files created so far**: `pyproject.toml`, `src/splatpipe/{__init__,errors,env,config,scene,paths,gaussians}.py`, `src/splatpipe/formats/{__init__,splat}.py`, `configs/truck.toml`, `scripts/patches/{__init__,definitions}.py`, `scripts/setup_env.py`, `tests/{test_package,test_env,test_patches,test_config,test_scene,test_paths,test_gaussians,test_splat_format}.py`, `requirements.lock.txt`.
 
 **Commands to resume:**
 
 ```
 cd "C:\Users\vedti\NUS_CS(noOnedrive)\gaussian-splat-compression"
 
-# Fast tier, ordinary shell, a few seconds. Currently 49 passed, 1 deselected.
+# Fast tier, ordinary shell, a few seconds. Currently 76 passed, 1 deselected.
 .venv\Scripts\python.exe -m pytest -q
 
 # Complete tier. Clearing addopts runs both CPU and GPU tests.

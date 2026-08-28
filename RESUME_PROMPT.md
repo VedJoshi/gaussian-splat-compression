@@ -23,13 +23,15 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Branch `milestone-1-scripted-pipeline`, with Task 6 complete at `e6b7c60` before the handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Task 6 and the handoff refresh are local and unpushed. `master` is untouched.
+Branch `milestone-1-scripted-pipeline`, with Task 7 complete at `05f64c0` before the handoff refresh. The branch tracks `origin/milestone-1-scripted-pipeline`; Tasks 6 and 7 plus their handoff refreshes are local and unpushed. `master` is untouched.
 
-Tasks 1 through 6 are implemented and passed review. **Task 7 is the first unfinished task.** Tasks 7 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
+Tasks 1 through 7 are implemented and passed review. **Task 8 is the first unfinished task.** Tasks 8 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
-Task 6 added `GaussianCloud`, a frozen numpy struct of arrays, plus validated 3DGS PLY reading and writing. It preserves log-scales, logit-opacities and channel-major higher-order spherical harmonics. The independent review was clean. The real truck PLY reads as `1000000 3 (1000000, 15, 3)`.
+Task 7 added the numpy-only 32-byte `.splat` writer with Morton, size-opacity and input ordering. Exact records are checked against gsplat with representable scales; randomized scale fields stay within 2 ULP while every other byte remains exact. Review fixed warning-producing numeric edges and strengthened the ordering regression by mutation. The real truck cloud encodes to exactly 32,000,000 bytes.
 
-Current suite: `49 passed, 1 deselected` fast tier, `50 passed, 1 warning` complete tier.
+Current suite: `76 passed, 1 deselected` fast tier, `77 passed, 1 warning` complete tier.
+
+Two Task 7 Minors are deferred to final branch review: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Neither affects trained non-empty clouds or validated run configuration.
 
 ## How to work
 
@@ -49,7 +51,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01YUgbMd3mogAV1hCkA2xkZr
 ```
 
-The branch tracks `origin/milestone-1-scripted-pipeline`, but Task 6 and the handoff refresh are local. Do not push and do not touch `master` without asking. Both need explicit permission from Ved, each time.
+The branch tracks `origin/milestone-1-scripted-pipeline`, but Tasks 6 and 7 plus their handoff refreshes are local. Do not push and do not touch `master` without asking. Both need explicit permission from Ved, each time.
 
 ## Environment: the parts that will waste your time if you do not know them
 
@@ -87,7 +89,7 @@ git log --oneline -5
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected before Task 7: clean tree, Task 6 present at `e6b7c60` before the handoff refresh, `49 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 8: clean tree, Task 7 present at `05f64c0` before the handoff refresh, `76 passed, 1 deselected`, and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -106,11 +108,10 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **Task 7, the `.splat` writer.** Contains the most valuable test in the milestone: encode a cloud and assert it matches `gsplat.exporter.export_splats` byte for byte. That verifies the format against the library the web viewer was built for rather than against anyone's reading of it. `gsplat.exporter` imports without the CUDA backend, so it runs in the fast tier with no GPU. The Task 7 review must decide and pin non-finite input behavior because gsplat drops NaN and Inf rows before export.
-2. **Task 8, run manifest.** Complete code in the brief.
-3. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
-4. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
-5. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
+1. **Task 8, run manifest.** Complete code in the brief.
+2. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
+3. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
+4. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
 
 Also fold in the two deferred minor issues at Task 11: `requirements.lock.txt` records the package as a `git+ssh` URL to a private remote, which nobody without SSH keys can install from, and `plyfile` is pinned `>=1.0` so it resolved to 1.1.3 rather than the 1.1.5 the spike ran on. Both are documented in `HANDOFF.md`.
 
