@@ -1,210 +1,124 @@
-# splat-spike
+# Gaussian Splat Compression
 
-A feasibility test, not a project. It answers one question:
+A reproducible research pipeline for measuring and improving the compression of
+3D Gaussian Splatting scenes. The project trains scenes with gsplat, exports
+portable artifacts, and evaluates compression methods by rate, image quality,
+and rendering performance.
 
-> Can an RTX 4050 Laptop (6 GB) train a 3D Gaussian Splatting scene, and is the output large
-> enough that compressing it is a problem worth working on?
+The central question is practical: how much of a trained Gaussian scene can be
+removed or quantized before the visual loss becomes unacceptable?
 
-Both yes. Ran 2026-08-25 on Windows 11, RTX 4050 Laptop 6 GB.
+## Project status
 
-## Result
+This project is in active development and has no stable release yet. Milestone
+1 is building the reproducible `splatpipe` training and export pipeline. Seven
+of its eleven implementation tasks have passed review on the
+[`milestone-1-scripted-pipeline`](https://github.com/VedJoshi/gaussian-splat-compression/tree/milestone-1-scripted-pipeline)
+branch.
 
-| Criterion | Bar | Measured | |
-|---|---|---|---|
-| gsplat compiles and imports | must work | works, after two patches | pass |
-| Scene trains end to end | under 45 min | 7.57 min | pass |
-| Peak VRAM | under ~5 GiB usable | 2.89 GiB | pass |
-| Output .ply large enough to be worth compressing | over 100 MB | 225 MiB | pass |
-| Renders in a browser | must work | 60 fps, 1.07 s load | pass, desktop only |
-| Renders on a phone | must work | not tested | open |
+Available on that branch:
 
-The 6 GB card was the risk I expected to fail. It had about 2 GiB to spare. The real difficulty was
-the Windows toolchain, which needed three upstream bugs worked around.
+- validated run configuration and deterministic parameter digests
+- Windows CUDA and compiler preflight checks
+- idempotent patches for the two required upstream Windows fixes
+- COLMAP scene validation and deterministic output paths
+- validated 3DGS `.ply` input and output
+- numpy-only `.splat` encoding with spatial and visual ordering
 
-## What was run
+The run manifest, synthetic scene fixture, training CLI, and final end-to-end
+reproduction are still in progress. The repository should therefore be treated
+as pre-release research code.
 
-Tanks and Temples `truck`, 251 images at 979x546, gsplat MCMC strategy, 7,000 steps, capped at
-1,000,000 Gaussians.
+## Measured baseline
 
-```
-wall clock      7.57 min
-peak GPU mem    2960 MiB of 6141 MiB (2.891 GiB)
-PSNR 24.406     SSIM 0.8580     LPIPS 0.1372
-gaussians       1,000,000 (hit our cap, not a hardware limit)
-render          0.0246 s/image, about 41 fps
-output .ply     236,001,478 bytes = 225 MiB
-```
+The feasibility baseline uses the Tanks and Temples `truck` scene with gsplat's
+MCMC strategy for 7,000 steps on an RTX 4050 Laptop GPU with 6 GB VRAM.
 
-The 3DGS paper reports about 25.2 PSNR on `truck` at 30k steps. This ran 7k steps, so 24.4 is in
-the expected range. The pipeline is working, not silently broken.
+| Measurement | Result |
+|---|---:|
+| Training time | 7.57 minutes |
+| Peak GPU memory | 2.89 GiB |
+| Held-out PSNR | 24.406 dB |
+| Held-out SSIM | 0.8580 |
+| Held-out LPIPS | 0.1372 |
+| Gaussian count | 1,000,000 |
+| Raw 3DGS `.ply` | 236,001,478 bytes |
+| Conventional `.splat` | 32,000,000 bytes |
+| Desktop browser rendering | 60 fps, vsync limited |
 
-## The part that matters for the project
+These measurements establish that the hardware can train the target scenes and
+that artifact size is large enough to make compression meaningful. Phone
+rendering and gsplat's `PngCompression` baseline have not yet been measured.
 
-236,001,478 / 1,000,000 = 236.0 bytes per Gaussian, which breaks down as:
+## Compression target
 
-| Field | Floats |
-|---|---|
-| means | 3 |
-| scales | 3 |
-| quaternion | 4 |
-| opacity | 1 |
-| SH DC | 3 |
-| SH rest (`f_rest_0..44`) | 45 |
-| total | 59 x 4 bytes = 236 |
+The raw model stores 59 float32 values per Gaussian, or 236 bytes:
 
-About three quarters of the file is spherical harmonic coefficients. That is a measured target for
-compression work rather than a guess.
+| Field | Float32 values |
+|---|---:|
+| Position | 3 |
+| Scale | 3 |
+| Rotation quaternion | 4 |
+| Opacity | 1 |
+| Spherical harmonic DC term | 3 |
+| Higher-order spherical harmonics | 45 |
 
-Converting to `.splat`, the format most web viewers use, gives 30 MiB, a 7.38x reduction. It gets
-there by dropping all 45 `f_rest_*` coefficients and keeping only the DC term, so it discards every
-view-dependent appearance term. The common web format is already lossy in appearance, not just
-precision.
+Higher-order spherical harmonics account for about 76 percent of the raw
+payload. The common 32-byte `.splat` format obtains a 7.38x size reduction by
+discarding all 45 of those values, which also removes view-dependent
+appearance. A useful compression method must therefore be compared at matched
+visual quality, not by file size alone.
 
-## Browser rendering
+Planned experiments combine spherical harmonic quantization, contribution-based
+pruning, compact attribute coding, and entropy coding. Results will be reported
+as rate-distortion curves using PSNR, SSIM, LPIPS, artifact size, load time, and
+rendering performance.
 
-The 30 MiB `.splat` was served locally and loaded in antimatter15's WebGL viewer, driven through
-Playwright's cached chromium.
+## Roadmap
 
-```
-load             1071 ms for 30 MiB over localhost
-frame rate       60 fps by the viewer's counter, 60.5 by rAF count over 3 s
-                 vsync capped, so it is not struggling
-GL renderer      ANGLE (NVIDIA, RTX 4050 Laptop GPU, Direct3D11), a real GPU
-                 rather than a SwiftShader software fallback
-JS heap          39.5 MiB
-console          one 404 on favicon.ico, confirmed benign against the server log
-```
+| Milestone | Outcome | State |
+|---|---|---|
+| 1. Scripted pipeline | One command reproduces the training and export baseline | In progress |
+| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | Planned |
+| 3. SH quantization | First measured compression improvement | Planned |
+| 4. Contribution pruning | Quality-aware Gaussian reduction | Planned |
+| 5. Container format | Entropy-coded artifacts with a documented schema | Planned |
+| 6. Viewer integration | Browser renderer for the project format | Planned |
+| 7. Three-scene site | Public comparison across real scenes | Planned |
+| 8. Evaluation writeup | Curves, ablations, and failure analysis | Planned |
 
-`_browser_test.png` is the screenshot. The scene renders correctly: the pickup, building, umbrellas
-and tables are all recognisable. The blurred foreground is the viewer's default camera pose, which
-is hardcoded for its own demo scene and starts the camera partly inside our geometry. Cosmetic.
+## Development
 
-A phone has not been tested. Desktop success makes it more likely, given the modest payload and
-heap, but a phone has less bandwidth, less memory and a weaker GPU, so it stays an assumption until
-someone opens it on one.
+The currently validated environment is Windows 11, Python 3.11, PyTorch
+2.7.1 with CUDA 12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is
+sensitive to version changes, so the pinned environment should be reproduced
+before dependencies are upgraded.
 
-One thing to weigh before designing anything: `gsplat.compression.PngCompression` already exists in
-the library, exposed as `--compression png`. Splat compression is not untouched ground. That makes
-the honest framing "analysed and improved on an existing baseline" rather than "built compression".
-That baseline was not measured here.
+From a provisioned checkout of the milestone branch:
 
-## Three upstream bugs
-
-None of these are configuration problems on this machine.
-
-**1. PyTorch 2.11 cannot build CUDA extensions on Windows.**
-`torch/include/c10/cuda/CUDACachingAllocator.h:105` declares a parameter named `small`. The Windows
-SDK's `rpcndr.h:190` contains `#define small char`, so the parameter becomes `bool char` and nvcc
-reports `invalid combination of type specifiers`. Upgrading Visual Studio does not help, because the
-macro comes from the SDK. Fixed by pinning `torch==2.7.1+cu128`, whose headers do not contain the
-struct.
-
-**2. gsplat 1.5.3 passes GCC flags to MSVC.**
-`gsplat/cuda/_backend.py:177` sets `extra_cflags = [opt_level, "-Wno-attributes"]`. `cl.exe` reads
-that as `/W` followed by `no-attributes` and fails with `D8021: invalid numeric argument`. `-O3` is
-not valid MSVC syntax either. Patched to select flags by platform. Original saved as
-`_backend.py.ORIGINAL.bak`.
-
-**3. The pycolmap fork only works on Linux.**
-`pycolmap/scene_manager.py:102` reads COLMAP binaries with `struct.unpack('L', f.read(8))`. Without
-a byte-order prefix, `'L'` uses native width: 8 bytes on Linux LP64, 4 on Windows LLP64. It reads 8
-bytes and tries to unpack 4. Patched five read sites to `'<Q'` and `'<IiQQ'`. Original saved as
-`_scene_manager.py.ORIGINAL.bak`.
-
-The write path in that same file, lines 313 to 421, still uses native `'L'` and is still broken on
-Windows. Nothing here writes COLMAP binaries, so it does not matter yet.
-
-Two smaller ones: gsplat imports `packaging` without declaring it as a dependency, and `fused-ssim`
-needs `wheel` installed when building with `--no-build-isolation`.
-
-## The patches are fragile
-
-Both fixes were applied inside `.venv/Lib/site-packages/`. A reinstall, an upgrade, or a fresh venv
-destroys them, and `pip freeze` will not show them. If this turns into a real project, they need to
-become a setup script, an upstream PR, or a vendored fork.
-
-## Working toolchain
-
-This combination is not obvious and is easy to lose.
-
-```
-python       3.11.0        not 3.13, which is the default on PATH
-torch        2.7.1+cu128   not 2.11, see bug 1
-torchvision  0.22.1+cu128
-numpy        1.26.4        gsplat v1.5.3 examples require numpy<2
-gsplat       1.5.3         plus the MSVC flag patch
-packaging                  undeclared gsplat dependency
-wheel                      needed for --no-build-isolation builds
-
-CUDA_HOME             C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8
-                      v12.9 is on PATH by default and has to be overridden,
-                      since it does not match the torch cu128 build
-host compiler         vcvars64.bat from VS Build Tools 2019 16.11, MSVC 14.29.30133
-TORCH_CUDA_ARCH_LIST  8.9, pinning to Ada only. Without it the build takes
-                      roughly 8x longer for no benefit on this machine
-MAX_JOBS              4
-```
-
-Everything has to run inside a `vcvars64.bat` shell with `CUDA_HOME` set to v12.8. `scripts/env.bat`
-does this. First gsplat compile takes about 4.7 minutes and is then cached in
-`%LOCALAPPDATA%\torch_extensions`; delete that to force a rebuild.
-
-## Reproducing the run
-
-```
+```bat
 scripts\env.bat
-cd _gsplat_repo\examples
-..\..\.venv\Scripts\python.exe simple_trainer.py mcmc ^
-  --data-dir ..\..\data\tandt\truck ^
-  --data-factor 1 ^
-  --max-steps 7000 ^
-  --save-ply --disable-viewer ^
-  --result-dir ..\..\results\truck_spike ^
-  --strategy.cap-max 1000000
+.venv\Scripts\python.exe scripts\setup_env.py --check
+.venv\Scripts\python.exe -m pytest -q
 ```
 
-tyro uses hyphens, not underscores. MCMC was chosen over the default strategy because `cap-max`
-makes VRAM usage predictable, which matters on a small card.
+The fast suite currently contains 76 passing tests and deselects one GPU test.
+To run the complete suite:
 
-Two things about the data that look like bugs and are not:
+```bat
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
+```
 
-- COLMAP reports the camera as 1957x1091 while the image files are 979x546. Tanks and Temples ships
-  images already downscaled by 2. gsplat's parser reads an actual image and rescales `K` by the
-  measured ratio (`datasets/colmap.py:265-273`), so `--data-factor 1` is correct.
-- `images_2/` and `images_4/` in the scene folder are unused. I generated them before working the
-  above out. `images_4` is 245x136, far too small to be useful.
+The complete suite currently contains 77 passing tests. `setup_env.py` also
+checks the pinned gsplat checkout and reports whether both Windows patches are
+applied.
 
-## Not tested
+## Documentation
 
-- Phones. Desktop rendering works, but nobody has opened this on a phone.
-- gsplat's `PngCompression` baseline. Without that number there is no way to know how much headroom
-  is left.
-- Higher resolutions or more than 1M Gaussians, though the spare VRAM suggests there is room.
+- [Pipeline design](docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md)
+- [Milestone 1 implementation plan](docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md)
+- [Current implementation handoff](https://github.com/VedJoshi/gaussian-splat-compression/blob/milestone-1-scripted-pipeline/HANDOFF.md)
+- [`SPIKE_LOG.txt`](SPIKE_LOG.txt), the full feasibility experiment record
 
-## Files
-
-| Path | What |
-|---|---|
-| `SPIKE_LOG.txt` | Full trace, every command and failure with root causes. Start here if something breaks. |
-| `scripts/env.bat` | Sets up vcvars64 and CUDA_HOME. Required before any build or training. |
-| `_ply_to_splat.py` | Vectorised .ply to .splat. The upstream converter loops per vertex and is unusable at 1M. |
-| `_get_data.py` | Downloads and prepares the truck scene. |
-| `_vram_sampler.py` | Samples nvidia-smi, so it measures the whole board rather than just PyTorch's allocator. |
-| `_browser_test.png` | Screenshot of the scene rendering in a browser at 60 fps. |
-| `*.ORIGINAL.bak` | Unmodified copies of the two patched library files. |
-
-Not in git: `.venv/`, `data/`, `results/`, `_gsplat_repo/`, `_webviewer/`, build logs. About 15 GB
-in total. The whole folder is safe to delete; nothing outside it was changed except the two patched
-files inside `.venv`, which go with it.
-
-## Where this leaves things
-
-The hardware objection is gone and the browser path works on desktop. What is still open is framing,
-not feasibility:
-
-1. `PngCompression` already exists, so the pitch is about improving on a baseline, not inventing one.
-2. Three quarters of the file is SH coefficients, so that is where compression work should start.
-3. Phones are still untested, and phones are where "send someone a link" actually gets judged.
-
-This was a spike during an ideation discussion. No design has been agreed and no project code has
-been written.
+Large datasets, trained artifacts, third-party checkouts, virtual environments,
+and build logs are intentionally excluded from Git.
