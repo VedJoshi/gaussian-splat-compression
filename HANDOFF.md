@@ -1,4 +1,4 @@
-# Handoff: Milestone 1 scripted splat pipeline: 2026-08-28
+# Handoff: Milestone 1 scripted splat pipeline: 2026-08-30
 
 ## Goal
 
@@ -10,7 +10,7 @@ rate-distortion compression research.
 
 ## Completed
 
-- Tasks 1 through 7 of the 11-task milestone plan are implemented, committed,
+- Tasks 1 through 8 of the 11-task milestone plan are implemented, committed,
   and through their review gates on `milestone-1-scripted-pipeline`.
 - Task 1, `dfef248`: package skeleton, error hierarchy, editable install, and
   dependency record.
@@ -28,9 +28,17 @@ rate-distortion compression research.
 - Task 7, `8a5e8ed`, `5ce9388`, `05f64c0`: numpy-only 32-byte `.splat`
   encoding with Morton, size-opacity, and input ordering. It was reviewed clean
   after two fix rounds, with two Minor edge cases deferred.
+- Task 8, `b5e4328`: `RunManifest` and `ArtifactRecord`, recording the resolved
+  configuration, its digest, versions, the Git commit, timings, metrics, and
+  content-addressed artifact entries. Reviewed clean on the first pass with no
+  Critical or Important findings and two Minor edge cases deferred.
 - The real truck PLY encodes to exactly 32,000,000 bytes. Its Morton-ordered
   SHA-256 is
   `3fd1a045aed8498eae1b11b900d12c9941c64791f05b617e0306c2c4e09926e3`.
+- `ArtifactRecord.of` on the same real truck PLY reports 236,001,478 bytes,
+  which is the exact size Task 11 must reproduce, with chunked SHA-256
+  `afeeb5b192475f208e8ad301fd3181f9d0229979ea43708f0cdc92bfbd1ae3c1` equal to
+  its whole-file hash.
 - The repository and GitHub remote are named `gaussian-splat-compression`; the
   package and planned CLI remain `splatpipe`.
 - `da1c671` replaces the default branch's spike-style README with a concise
@@ -38,11 +46,8 @@ rate-distortion compression research.
   milestone branch. `35daec6` records the remote and merge policy.
 - The milestone branch was assessed for merging and deliberately kept separate
   from `master`: its stated end-to-end success criterion is still unfinished.
-- Both branches were pushed atomically. Before this handoff-only refresh,
-  `origin/master == da1c671` and
-  `origin/milestone-1-scripted-pipeline == 35daec6`.
-- Verification after the README merge: `76 passed, 1 deselected` in the fast
-  tier; `77 passed, 1 warning` in the complete tier. The warning is the known
+- Verification after Task 8: `80 passed, 1 deselected` in the fast tier;
+  `81 passed, 1 warning` in the complete tier. The warning is the known
   pycolmap `np.uint64(-1)` deprecation warning.
 - Live environment verification reports the gsplat checkout pinned at
   `937e29912570c372bed6747a5c9bf85fed877bae` and both required patches
@@ -50,14 +55,14 @@ rate-distortion compression research.
 
 ## In Progress
 
-- Task 8 is the first unfinished task. It adds `manifest.json` containing the
-  resolved configuration, environment, versions, timings, metrics, Git commit,
-  and content-addressed artifact metadata.
-- No Task 8 implementation has started. Its complete brief is already at
-  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-8-brief.md`.
-- Tasks 9 through 11 are also unstarted. Their briefs are already extracted in
-  the same directory: synthetic COLMAP fixture, training stage and CLI, then
-  real truck reproduction and milestone cleanup.
+- Task 9 is the first unfinished task. It adds the synthetic COLMAP scene
+  fixture: `cameras.bin`, `images.bin`, and `points3D.bin` written by hand,
+  plus a tiny trainable scene that generates in about a second.
+- No Task 9 implementation has started. Its complete brief is already at
+  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-9-brief.md`.
+- Tasks 10 and 11 are also unstarted. Their briefs are already extracted in
+  the same directory: training stage and CLI, then real truck reproduction and
+  milestone cleanup.
 
 ## Not Working / Blockers
 
@@ -75,6 +80,12 @@ rate-distortion compression research.
 - Task 7 deferred Minor: an empty cloud with Morton ordering raises NumPy's raw
   zero-size reduction `ValueError`. Training cannot produce an empty final
   cloud.
+- Task 8 deferred Minor: `collect_versions` catches bare `Exception` around the
+  torch and gsplat imports, so a broken install records `not-imported`
+  identically to an absent one. The field is informational.
+- Task 8 deferred Minor: no test covers the `_git_commit` fallback branch or
+  `ArtifactRecord.of` called with a path outside `relative_to`, which raises
+  `ValueError` from `Path.relative_to`.
 - Phone captures still have no scheduled pose-estimation stage. This blocks the
   later three-scene deployment milestone, not milestone 1.
 
@@ -110,6 +121,11 @@ rate-distortion compression research.
   `exp` differ by up to 2 ULP on random float32 inputs. Exact full-record tests
   use zero log-scales; random scales compare within 2 ULP while every other byte
   remains exact.
+- **The manifest never records `source_path`**: `RunConfig.to_dict()` pops it,
+  so an absolute local path cannot reach `manifest.json` and break portability
+  or the config digest.
+- **`ArtifactRecord` paths are POSIX relative**: `as_posix()` keeps recorded
+  paths stable across platforms, which is what Task 10 asserts.
 - **No configurable seed**: gsplat's trainer hardcodes `42 + local_rank`, so a
   config field would claim control it does not have.
 - **Validate both image folders**: COLMAP names refer to `images/`, while
@@ -119,18 +135,24 @@ rate-distortion compression research.
 
 ## Next Steps
 
-1. **(P0) Implement and review Task 8 only.** Read the design, plan, ledger, and
-   `task-8-brief.md`; perform its preflight, work test-first, commit with the
+1. **(P0) Implement and review Task 9 only.** Read the design, plan, ledger, and
+   `task-9-brief.md`; perform its preflight, work test-first, commit with the
    prescribed message and trailers, run a dedicated review, resolve all
-   Critical and Important findings, update the ledger, then stop.
-2. **(P1) Implement Tasks 9 through 11 in order, one reviewed task per user
-   turn.** Task 9 writes explicit-width little-endian COLMAP binaries; Task 10
-   introduces the first full CLI path; Task 11 runs the real truck scene.
+   Critical and Important findings, update the ledger, then stop. Every
+   `struct` format string must carry explicit byte order and width (`'<Q'`,
+   never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is
+   the upstream bug the pycolmap patch fixes. pycolmap's own write path is
+   still broken on Windows and cannot serve as a reference; the layouts in the
+   brief are transcribed from its reader, which is the consumer.
+2. **(P1) Implement Tasks 10 and 11 in order, one reviewed task per user
+   turn.** Task 10 introduces the first full CLI path and is the first time the
+   whole chain runs; Task 11 runs the real truck scene.
 3. **(P1) Treat Task 11 as falsification.** Expected truck values are PSNR
    24.406, SSIM 0.8580, LPIPS 0.1372, and `.ply` size 236,001,478 bytes. A PSNR
    difference greater than about 0.1 requires investigation.
-4. **(P2) Resolve the lock-file, `plyfile`, two Task 7 Minor, and root spike-file
-   cleanup items during the final branch review and Task 11 documentation pass.
+4. **(P2) Resolve the lock-file, `plyfile`, two Task 7 Minor, two Task 8 Minor,
+   and root spike-file cleanup items during the final branch review and Task 11
+   documentation pass.
 5. **(P2) Decide whether phone captures gain a COLMAP stage around milestone
    6.5 or whether the three deployment scenes come from public datasets. This
    is an owner decision for Ved.
@@ -164,6 +186,8 @@ rate-distortion compression research.
 
 - **Command caveat**: run `cmd /c` lines through PowerShell. Use
   `-o addopts=` for the complete suite; `-m gpu` runs only the GPU-marked test.
+  PowerShell strips quotes from arguments passed to `python -c`, so run a
+  scratch `.py` file instead of an inline snippet.
 - **Open questions**: how phone captures get COLMAP poses; whether gsplat
   `PngCompression` leaves enough rate-distortion headroom to beat; final
-  disposition of the two Task 7 Minor edge cases.
+  disposition of the two Task 7 and two Task 8 Minor edge cases.
