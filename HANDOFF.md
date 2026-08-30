@@ -1,4 +1,4 @@
-# Handoff: Milestone 1 scripted splat pipeline: 2026-08-30
+# Handoff: Milestone 1 scripted splat pipeline: 2026-08-30 (Task 9 complete)
 
 ## Goal
 
@@ -10,7 +10,7 @@ rate-distortion compression research.
 
 ## Completed
 
-- Tasks 1 through 8 of the 11-task milestone plan are implemented, committed,
+- Tasks 1 through 9 of the 11-task milestone plan are implemented, committed,
   and through their review gates on `milestone-1-scripted-pipeline`.
 - Task 1, `dfef248`: package skeleton, error hierarchy, editable install, and
   dependency record.
@@ -32,6 +32,12 @@ rate-distortion compression research.
   configuration, its digest, versions, the Git commit, timings, metrics, and
   content-addressed artifact entries. Reviewed clean on the first pass with no
   Critical or Important findings and two Minor edge cases deferred.
+- Task 9, `94b80f6`: the synthetic COLMAP scene fixture. `tests/fixtures/`
+  writes `cameras.bin`, `images.bin`, and `points3D.bin` by hand with explicit
+  little-endian struct widths, and `make_tiny_scene` builds a 24-image ring
+  scene that generates in about a second. The real installed pycolmap reads
+  every file back. Reviewed clean on the first pass with two Minor edge cases
+  deferred.
 - The real truck PLY encodes to exactly 32,000,000 bytes. Its Morton-ordered
   SHA-256 is
   `3fd1a045aed8498eae1b11b900d12c9941c64791f05b617e0306c2c4e09926e3`.
@@ -46,23 +52,30 @@ rate-distortion compression research.
   milestone branch. `35daec6` records the remote and merge policy.
 - The milestone branch was assessed for merging and deliberately kept separate
   from `master`: its stated end-to-end success criterion is still unfinished.
-- Verification after Task 8: `80 passed, 1 deselected` in the fast tier;
-  `81 passed, 1 warning` in the complete tier. The warning is the known
-  pycolmap `np.uint64(-1)` deprecation warning.
+- Verification after Task 9: `83 passed, 1 deselected` in the fast tier with no
+  warnings; `84 passed, 1 warning` in the complete tier. The warning is the
+  known pycolmap `np.uint64(-1)` deprecation warning, and Task 9's new pycolmap
+  import added no further warning.
 - Live environment verification reports the gsplat checkout pinned at
   `937e29912570c372bed6747a5c9bf85fed877bae` and both required patches
   `applied`.
 
 ## In Progress
 
-- Task 9 is the first unfinished task. It adds the synthetic COLMAP scene
-  fixture: `cameras.bin`, `images.bin`, and `points3D.bin` written by hand,
-  plus a tiny trainable scene that generates in about a second.
-- No Task 9 implementation has started. Its complete brief is already at
-  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-9-brief.md`.
-- Tasks 10 and 11 are also unstarted. Their briefs are already extracted in
-  the same directory: training stage and CLI, then real truck reproduction and
-  milestone cleanup.
+- Task 10 is the first unfinished task. It adds the training stage and the
+  `splatpipe run` CLI, and it is the first time the whole chain runs end to
+  end. Its complete brief is at
+  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-10-brief.md`.
+- No Task 10 implementation has started. Task 11 is also unstarted: real truck
+  reproduction and milestone cleanup.
+- Treat a failure in Task 10 as the real work of the task rather than as an
+  obstacle to it. Every prior task built a piece in isolation; Task 10 is where
+  the pieces meet.
+- Nothing is mid-flight. If this section names a task as under way and the
+  ledger has no matching `Task N: complete` line, that task did not finish.
+  Read the ledger at
+  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`
+  before changing anything.
 
 ## Not Working / Blockers
 
@@ -86,6 +99,14 @@ rate-distortion compression research.
 - Task 8 deferred Minor: no test covers the `_git_commit` fallback branch or
   `ArtifactRecord.of` called with a path outside `relative_to`, which raises
   `ValueError` from `Path.relative_to`.
+- Task 9 deferred Minor: `write_images_bin` and `write_points3D_bin` annotate
+  their inputs as `Sequence[tuple]` with an untyped inner tuple, unlike
+  `write_cameras_bin`. Inherited from the brief, test-only fixture code.
+- Task 9 deferred Minor: `write_images_bin` trusts `len(xys) == len(point3D_ids)`
+  without asserting it. A mismatched caller would make `zip` truncate silently
+  while the already-written `count2D` header still claimed the longer length,
+  producing a corrupt file with no write-time error. The invariant holds for the
+  only caller.
 - Phone captures still have no scheduled pose-estimation stage. This blocks the
   later three-scene deployment milestone, not milestone 1.
 
@@ -126,6 +147,15 @@ rate-distortion compression research.
   or the config digest.
 - **`ArtifactRecord` paths are POSIX relative**: `as_posix()` keeps recorded
   paths stable across platforms, which is what Task 10 asserts.
+- **Test-only imports are declared**: `pillow` is in the `dev` optional
+  dependencies because the fixtures import `PIL`. The CPU fast tier must not
+  depend on a package that arrived transitively through torchvision.
+- **`look_at_quaternion` branches on the largest component**: the plan's
+  `w = sqrt(1 + trace) / 2` extraction is degenerate at the default
+  `n_images=24`, where ring index 6 gives `trace == -1.0` bit-exact and the
+  plan's own guard raises. The standard branch-by-largest-component
+  construction has no degenerate branch for a proper rotation. Reverting it
+  fails all three Task 9 tests, so the fix is pinned by construction.
 - **No configurable seed**: gsplat's trainer hardcodes `42 + local_rank`, so a
   config field would claim control it does not have.
 - **Validate both image folders**: COLMAP names refer to `images/`, while
@@ -135,24 +165,22 @@ rate-distortion compression research.
 
 ## Next Steps
 
-1. **(P0) Implement and review Task 9 only.** Read the design, plan, ledger, and
-   `task-9-brief.md`; perform its preflight, work test-first, commit with the
-   prescribed message and trailers, run a dedicated review, resolve all
-   Critical and Important findings, update the ledger, then stop. Every
-   `struct` format string must carry explicit byte order and width (`'<Q'`,
-   never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is
-   the upstream bug the pycolmap patch fixes. pycolmap's own write path is
-   still broken on Windows and cannot serve as a reference; the layouts in the
-   brief are transcribed from its reader, which is the consumer.
-2. **(P1) Implement Tasks 10 and 11 in order, one reviewed task per user
-   turn.** Task 10 introduces the first full CLI path and is the first time the
-   whole chain runs; Task 11 runs the real truck scene.
+1. **(P0) Implement and review Task 10 only.** Read the design, plan, ledger,
+   and `task-10-brief.md`; perform its preflight, work test-first, commit with
+   the prescribed message and trailers, run a dedicated review, resolve all
+   Critical and Important findings, update the ledger, then stop. This is the
+   first task where the whole chain runs, so it consumes `check_build_env()`,
+   `SceneLayout.discover`, `RunPaths`, `read_ply`, `encode_splat`,
+   `RunManifest`, and `make_tiny_scene` together. Its end-to-end test is marked
+   `gpu` and needs the chained `env.bat` invocation.
+2. **(P1) Implement Task 11 after it, one reviewed task per user turn.** Task 11
+   runs the real truck scene.
 3. **(P1) Treat Task 11 as falsification.** Expected truck values are PSNR
    24.406, SSIM 0.8580, LPIPS 0.1372, and `.ply` size 236,001,478 bytes. A PSNR
    difference greater than about 0.1 requires investigation.
 4. **(P2) Resolve the lock-file, `plyfile`, two Task 7 Minor, two Task 8 Minor,
-   and root spike-file cleanup items during the final branch review and Task 11
-   documentation pass.
+   two Task 9 Minor, and root spike-file cleanup items during the final branch
+   review and Task 11 documentation pass.
 5. **(P2) Decide whether phone captures gain a COLMAP stage around milestone
    6.5 or whether the three deployment scenes come from public datasets. This
    is an owner decision for Ved.
@@ -169,6 +197,13 @@ rate-distortion compression research.
   `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`, then the
   ignored ledger at
   `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`.
+- **Independent audit**: `REVIEWER_AGENT.md` holds a self-contained prompt for a
+  fresh review agent. Paste it into a new session, optionally with a scope such
+  as "review the last commit" or "review the whole branch against master". It is
+  read-only by contract: the reviewer reports findings and never edits, commits,
+  pushes, or mutates GitHub state. Its first step is checking that the ledger
+  matches `git log`, which is the cheapest way to catch an implementing agent
+  that lost its place.
 - **Key files changed**: `README.md`, `HANDOFF.md`, `RESUME_PROMPT.md`,
   `pyproject.toml`, `configs/truck.toml`, `scripts/setup_env.py`,
   `scripts/patches/`, `src/splatpipe/`, and `tests/`.
@@ -190,4 +225,4 @@ rate-distortion compression research.
   scratch `.py` file instead of an inline snippet.
 - **Open questions**: how phone captures get COLMAP poses; whether gsplat
   `PngCompression` leaves enough rate-distortion headroom to beat; final
-  disposition of the two Task 7 and two Task 8 Minor edge cases.
+  disposition of the six deferred Minor edge cases from Tasks 7, 8 and 9.

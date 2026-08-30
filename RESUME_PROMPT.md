@@ -23,9 +23,9 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Use branch `milestone-1-scripted-pipeline`. Task 8 is complete at `b5e4328`; the concise default-branch README is merged forward at `458686e`. `origin/master` is at `da1c671`. The milestone branch remains separate from `master` because three tasks are unfinished. There is no `main` branch and no pull request.
+Use branch `milestone-1-scripted-pipeline`. Task 9 is complete at `94b80f6`; the concise default-branch README is merged forward at `458686e`. `origin/master` is at `da1c671`. The milestone branch remains separate from `master` because two tasks are unfinished. There is no `main` branch and no pull request.
 
-Tasks 1 through 8 are implemented and passed review. **Task 9 is the first unfinished task.** Tasks 9 through 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
+Tasks 1 through 9 are implemented and passed review. **Task 10 is the first unfinished task.** Tasks 10 and 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
 
 GitHub access works through both SSH and `gh` as `VedJoshi`. Ved authorized routine pushes and default-branch documentation updates on 2026-08-28, but the milestone branch must not merge into `master` before the end-to-end criterion passes.
 
@@ -33,9 +33,11 @@ Task 7 added the numpy-only 32-byte `.splat` writer with Morton, size-opacity an
 
 Task 8 added `RunManifest` and `ArtifactRecord` in `src/splatpipe/manifest.py`. The manifest records the resolved config, its digest, versions, the Git commit, timings, metrics and content-addressed artifact entries. It reviewed clean on the first pass. Two contracts Task 10 depends on are pinned: `RunConfig.to_dict()` pops `source_path`, so no absolute local path reaches `manifest.json`, and `ArtifactRecord.of` calls `as_posix()`, so a recorded path reads `artifacts/scene.ply` on Windows rather than a backslash form.
 
-Current suite: `80 passed, 1 deselected` fast tier, `81 passed, 1 warning` complete tier.
+Task 9 added the synthetic COLMAP scene fixture under `tests/fixtures/`: `colmap_bin.py` writes `cameras.bin`, `images.bin` and `points3D.bin` by hand with explicit little-endian struct widths, and `tiny_scene.py` builds a 24-image ring scene in about a second. The real installed pycolmap reads all three files back, which is what proves the widths. Two deviations from the brief were ruled in: `pillow` joined the `dev` optional dependencies, because the fixture imports `PIL` and pillow was present only as a transitive dependency of torchvision; and `look_at_quaternion` now branches on the largest quaternion component, because the brief's `w = sqrt(1 + trace) / 2` extraction is degenerate at its own default `n_images=24`. Ring index 6 gives `trace == -1.0` bit-exact, so the brief's own guard raised and every Task 9 test would have errored. Reverting that fix fails all three tests, so it is pinned by construction.
 
-Four Minors are deferred to final branch review. Task 7: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Task 8: `collect_versions` catching bare `Exception` so a broken torch or gsplat install is indistinguishable from an absent one, and no test covering the `_git_commit` fallback or `ArtifactRecord.of` with a path outside `relative_to`. None affects trained non-empty clouds or validated run configuration.
+Current suite: `83 passed, 1 deselected` fast tier with no warnings, `84 passed, 1 warning` complete tier.
+
+Six Minors are deferred to final branch review. Task 7: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Task 8: `collect_versions` catching bare `Exception` so a broken torch or gsplat install is indistinguishable from an absent one, and no test covering the `_git_commit` fallback or `ArtifactRecord.of` with a path outside `relative_to`. Task 9: loose inner-tuple type hints on two writers, and `write_images_bin` trusting that `xys` and `point3D_ids` are the same length. None affects trained non-empty clouds, validated run configuration, or the single fixture caller.
 
 ## How to work
 
@@ -95,7 +97,7 @@ git log --oneline -5
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected before Task 9: clean tree and synchronized tracking ref after the handoff commit; `b5e4328`, `458686e`, and `05f64c0` present in recent history; `master` at `da1c671`; `80 passed, 1 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 10: clean tree and synchronized tracking ref after the handoff commit; `94b80f6`, `b5e4328`, and `458686e` present in recent history; `master` at `da1c671`; `83 passed, 1 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -114,11 +116,14 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **Task 9, synthetic COLMAP scene fixture.** Writes `cameras.bin`, `images.bin`, `points3D.bin` by hand. Implement and review this task only, update the ledger and handoff, then stop. Do not start Task 10 in the same user turn. Every struct format must carry explicit byte order and width (`'<Q'`, never `'L'`): native `'L'` is 4 bytes on Windows and 8 on Linux, which is the upstream bug the pycolmap patch fixes. pycolmap's own write path is still broken on Windows and cannot be used as a reference. The layouts are transcribed in the brief from pycolmap's reader, which is the consumer.
-2. **Task 10, training stage and CLI.** First time the whole chain runs. Treat a failure here as the real work of the task.
-3. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
+1. **Task 10, training stage and CLI.** First time the whole chain runs. Implement and review this task only, update the ledger and handoff, then stop. Do not start Task 11 in the same user turn. Treat a failure here as the real work of the task: every earlier task built a piece in isolation, and this is where they meet. It consumes `check_build_env()`, `SceneLayout.discover`, `RunPaths`, `read_ply`, `encode_splat`, `RunManifest` and `make_tiny_scene` together, and its end-to-end test is marked `gpu`, so it needs the chained `env.bat` invocation.
+2. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
 
 Also fold in the two deferred packaging issues at Task 11: `requirements.lock.txt` records the package as a `git+ssh` URL to a private remote, which nobody without SSH keys can install from, and `plyfile` is pinned `>=1.0` so it resolved to 1.1.3 rather than the 1.1.5 the spike ran on. Both are documented in `HANDOFF.md`, alongside the four deferred review Minors from Tasks 7 and 8.
+
+## Auditing the work
+
+`REVIEWER_AGENT.md` in the repository root holds a self-contained prompt for an independent review agent. Paste it into a fresh session, optionally with a scope such as "review the last commit" or "review the whole branch against master". It is read-only by contract: it reports findings and never edits, commits, pushes, or mutates GitHub state. Its first step is reconciling the ledger against `git log`, which is the cheapest way to catch an agent that lost its place. Use it whenever you want a second opinion that did not inherit this session's assumptions.
 
 ## Judgment
 
