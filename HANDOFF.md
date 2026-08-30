@@ -1,4 +1,4 @@
-# Handoff: Milestone 1 scripted splat pipeline: 2026-08-30 (Task 9 complete)
+# Handoff: Milestone 1 scripted splat pipeline: 2026-08-30 (Task 10 complete)
 
 ## Goal
 
@@ -10,8 +10,12 @@ rate-distortion compression research.
 
 ## Completed
 
-- Tasks 1 through 9 of the 11-task milestone plan are implemented, committed,
+- Tasks 1 through 10 of the 11-task milestone plan are implemented, committed,
   and through their review gates on `milestone-1-scripted-pipeline`.
+- **The pipeline runs end to end.** `splatpipe run <scene-dir> --config <cfg>
+  --out <dir>` takes a COLMAP directory and a config and produces a trained
+  `.ply`, a `.splat`, a copied config and a manifest. Only the real truck
+  reproduction remains.
 - Task 1, `dfef248`: package skeleton, error hierarchy, editable install, and
   dependency record.
 - Task 2, `4d77440`: aggregate Windows compiler and CUDA environment preflight.
@@ -32,6 +36,12 @@ rate-distortion compression research.
   configuration, its digest, versions, the Git commit, timings, metrics, and
   content-addressed artifact entries. Reviewed clean on the first pass with no
   Critical or Important findings and two Minor edge cases deferred.
+- Task 10, `bbbe8fe`, `14b65fa`: the training stage and the `splatpipe run`
+  CLI. Training shells out to gsplat's `simple_trainer.py`; the CLI validates
+  the scene, trains or reuses `train/`, copies the config, exports both
+  artifacts, and writes the manifest. Reviewed after one fix round, with three
+  Minor edge cases deferred. `--skip-train` re-exports without retraining: 2.7
+  seconds against 71.3 seconds of training on the tiny scene.
 - Task 9, `94b80f6`: the synthetic COLMAP scene fixture. `tests/fixtures/`
   writes `cameras.bin`, `images.bin`, and `points3D.bin` by hand with explicit
   little-endian struct widths, and `make_tiny_scene` builds a 24-image ring
@@ -52,28 +62,33 @@ rate-distortion compression research.
   milestone branch. `35daec6` records the remote and merge policy.
 - The milestone branch was assessed for merging and deliberately kept separate
   from `master`: its stated end-to-end success criterion is still unfinished.
-- Verification after Task 9: `83 passed, 1 deselected` in the fast tier with no
-  warnings; `84 passed, 1 warning` in the complete tier. The warning is the
-  known pycolmap `np.uint64(-1)` deprecation warning, and Task 9's new pycolmap
-  import added no further warning.
+- Verification after Task 10: `95 passed, 3 deselected` in the fast tier;
+  `98 passed, 1 warning` in the complete tier, in 91 seconds. The warning is the
+  known pycolmap `np.uint64(-1)` deprecation warning. The complete tier trains
+  the real gsplat trainer twice, once per end-to-end test.
 - Live environment verification reports the gsplat checkout pinned at
   `937e29912570c372bed6747a5c9bf85fed877bae` and both required patches
   `applied`.
 
 ## In Progress
 
-- Task 10 is the first unfinished task. It adds the training stage and the
-  `splatpipe run` CLI, and it is the first time the whole chain runs end to
-  end. Its complete brief is at
-  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-10-brief.md`.
-- No Task 10 implementation has started. Task 11 is also unstarted: real truck
-  reproduction and milestone cleanup.
-- Treat a failure in Task 10 as the real work of the task rather than as an
-  obstacle to it. Every prior task built a piece in isolation; Task 10 is where
-  the pieces meet.
-- Nothing is mid-flight. If this section names a task as under way and the
-  ledger has no matching `Task N: complete` line, that task did not finish.
-  Read the ledger at
+- Task 11 is the first unfinished task, and it is the last one. It runs the
+  real truck scene through the new CLI and compares the result against the
+  spike. Its complete brief is at
+  `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-11-brief.md`.
+- No Task 11 implementation has started.
+- Task 11 is falsification, not a formality. Expected values are PSNR 24.406,
+  SSIM 0.8580, LPIPS 0.1372, and a `.ply` of exactly 236,001,478 bytes. The
+  `.ply` size must match exactly, since it is a function of Gaussian count and
+  field list. Metrics should match to about two decimal places: the seed is
+  fixed upstream at 42, but CUDA reductions are not bit-reproducible. A PSNR
+  differing by more than about 0.1 means something is genuinely different and
+  must be investigated before the milestone is called done.
+- Task 11 also carries the milestone cleanup: the `requirements.lock.txt` SSH
+  remote, the `plyfile` version pin, the nine deferred Minor findings, and the
+  spike files still sitting in the repository root.
+- If this section names a task as under way and the ledger has no matching
+  `Task N: complete` line, that task did not finish. Read the ledger at
   `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`
   before changing anything.
 
@@ -107,6 +122,16 @@ rate-distortion compression research.
   while the already-written `count2D` header still claimed the longer length,
   producing a corrupt file with no write-time error. The invariant holds for the
   only caller.
+- Task 10 deferred Minor: `tests/test_pipeline_e2e.py` imports `ExportConfig`
+  and `TrainConfig` without using either. Inherited from the brief.
+- Task 10 deferred Minor: no CPU test exercises `run_pipeline`'s orchestration,
+  so stage ordering and the `--skip-train` `ArtifactError` path are covered only
+  by the two GPU-marked tests. Widening this needs a `run_training` stub.
+- Task 10 deferred Minor: the non-skip-train branch does not check
+  `trained_ply.is_file()` before copying it, so a training that somehow omitted
+  the final `.ply` would raise a bare `FileNotFoundError`. Unreachable in
+  practice, since `--save-ply` is always passed and the trainer saves at
+  `max_steps - 1` unconditionally.
 - Phone captures still have no scheduled pose-estimation stage. This blocks the
   later three-scene deployment milestone, not milestone 1.
 
@@ -156,6 +181,21 @@ rate-distortion compression research.
   plan's own guard raises. The standard branch-by-largest-component
   construction has no degenerate branch for a proper rotation. Reverting it
   fails all three Task 9 tests, so the fix is pinned by construction.
+- **Always pass `--eval-steps <max_steps>`**: gsplat evaluates only at
+  `step in [i - 1 for i in cfg.eval_steps]`, defaulting to `[7000, 30000]`.
+  Unlike the checkpoint and ply branches it carries no `or step == max_steps - 1`
+  fallback, so any run shorter than 7000 steps produces no metrics at all.
+- **gsplat pads the stats filename but not the ply filename**: stats are
+  `{stage}_step{step:04d}.json`, the ply is `point_cloud_{step}.ply`. The two
+  spellings coincide at step 6999, which hides the difference on the truck run
+  and only breaks below 1000 steps.
+- **Errors are translated at the boundary, not caught broadly in `main`**:
+  `from_toml` raises `ConfigError` naming the file, `run_training` raises
+  `ArtifactError` naming the exit code and the log path. Each message says what
+  to do next, which a widened `except` clause could not.
+- **Configs may carry a UTF-8 BOM**: `from_toml` decodes with `utf-8-sig`.
+  Windows is this project's only platform, and PowerShell and several Windows
+  editors emit a BOM by default.
 - **No configurable seed**: gsplat's trainer hardcodes `42 + local_rank`, so a
   config field would claim control it does not have.
 - **Validate both image folders**: COLMAP names refer to `images/`, while
@@ -165,22 +205,18 @@ rate-distortion compression research.
 
 ## Next Steps
 
-1. **(P0) Implement and review Task 10 only.** Read the design, plan, ledger,
-   and `task-10-brief.md`; perform its preflight, work test-first, commit with
-   the prescribed message and trailers, run a dedicated review, resolve all
-   Critical and Important findings, update the ledger, then stop. This is the
-   first task where the whole chain runs, so it consumes `check_build_env()`,
-   `SceneLayout.discover`, `RunPaths`, `read_ply`, `encode_splat`,
-   `RunManifest`, and `make_tiny_scene` together. Its end-to-end test is marked
-   `gpu` and needs the chained `env.bat` invocation.
-2. **(P1) Implement Task 11 after it, one reviewed task per user turn.** Task 11
-   runs the real truck scene.
-3. **(P1) Treat Task 11 as falsification.** Expected truck values are PSNR
-   24.406, SSIM 0.8580, LPIPS 0.1372, and `.ply` size 236,001,478 bytes. A PSNR
-   difference greater than about 0.1 requires investigation.
-4. **(P2) Resolve the lock-file, `plyfile`, two Task 7 Minor, two Task 8 Minor,
-   two Task 9 Minor, and root spike-file cleanup items during the final branch
-   review and Task 11 documentation pass.
+1. **(P0) Implement and review Task 11, the last task.** Read the design, plan,
+   ledger, and `task-11-brief.md`; perform its preflight, run the real truck
+   scene through the CLI, compare against the spike, commit with the prescribed
+   message and trailers, run a dedicated review, resolve all Critical and
+   Important findings, update the ledger, then stop. Expect the training run
+   itself to take several minutes on the 6 GB card.
+2. **(P1) Treat Task 11 as falsification.** A PSNR difference greater than
+   about 0.1 requires investigation before the milestone is called done. Do not
+   adjust the expected values to match what comes out.
+3. **(P2) Resolve the lock-file, `plyfile`, the nine deferred Minor findings,
+   and root spike-file cleanup during the final branch review and Task 11
+   documentation pass.
 5. **(P2) Decide whether phone captures gain a COLMAP stage around milestone
    6.5 or whether the three deployment scenes come from public datasets. This
    is an owner decision for Ved.
@@ -225,4 +261,4 @@ rate-distortion compression research.
   scratch `.py` file instead of an inline snippet.
 - **Open questions**: how phone captures get COLMAP poses; whether gsplat
   `PngCompression` leaves enough rate-distortion headroom to beat; final
-  disposition of the six deferred Minor edge cases from Tasks 7, 8 and 9.
+  disposition of the nine deferred Minor edge cases from Tasks 7 through 10.

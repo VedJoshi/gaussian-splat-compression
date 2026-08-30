@@ -23,9 +23,11 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Use branch `milestone-1-scripted-pipeline`. Task 9 is complete at `94b80f6`; the concise default-branch README is merged forward at `458686e`. `origin/master` is at `da1c671`. The milestone branch remains separate from `master` because two tasks are unfinished. There is no `main` branch and no pull request.
+Use branch `milestone-1-scripted-pipeline`. Task 10 is complete at `14b65fa`; the concise default-branch README is merged forward at `458686e`. `origin/master` is at `da1c671`. The milestone branch remains separate from `master` because Task 11, the real truck reproduction, is unfinished. There is no `main` branch and no pull request.
 
-Tasks 1 through 9 are implemented and passed review. **Task 10 is the first unfinished task.** Tasks 10 and 11 have briefs already extracted into the workspace directory as `task-N-brief.md`.
+Tasks 1 through 10 are implemented and passed review. **Task 11 is the first unfinished task, and it is the last one.** Its brief is already extracted into the workspace directory as `task-11-brief.md`.
+
+**The pipeline runs end to end.** `splatpipe run <scene-dir> --config <cfg> --out <dir>` takes a COLMAP directory and a config and produces a trained `.ply`, a `.splat`, a copied config and a manifest. That was proved on a synthetic scene. Task 11 proves it on the real one.
 
 GitHub access works through both SSH and `gh` as `VedJoshi`. Ved authorized routine pushes and default-branch documentation updates on 2026-08-28, but the milestone branch must not merge into `master` before the end-to-end criterion passes.
 
@@ -35,9 +37,13 @@ Task 8 added `RunManifest` and `ArtifactRecord` in `src/splatpipe/manifest.py`. 
 
 Task 9 added the synthetic COLMAP scene fixture under `tests/fixtures/`: `colmap_bin.py` writes `cameras.bin`, `images.bin` and `points3D.bin` by hand with explicit little-endian struct widths, and `tiny_scene.py` builds a 24-image ring scene in about a second. The real installed pycolmap reads all three files back, which is what proves the widths. Two deviations from the brief were ruled in: `pillow` joined the `dev` optional dependencies, because the fixture imports `PIL` and pillow was present only as a transitive dependency of torchvision; and `look_at_quaternion` now branches on the largest quaternion component, because the brief's `w = sqrt(1 + trace) / 2` extraction is degenerate at its own default `n_images=24`. Ring index 6 gives `trace == -1.0` bit-exact, so the brief's own guard raised and every Task 9 test would have errored. Reverting that fix fails all three tests, so it is pinned by construction.
 
-Current suite: `83 passed, 1 deselected` fast tier with no warnings, `84 passed, 1 warning` complete tier.
+Task 10 added `src/splatpipe/stages/train.py` and `src/splatpipe/cli.py`. Training shells out to gsplat's `simple_trainer.py` as a subprocess, because that trainer resolves `datasets.colmap` and `utils` relative to its own directory. Two plan defects were found by reading the trainer's source and ruled in before implementation. First, gsplat evaluates only at `step in [i - 1 for i in cfg.eval_steps]`, defaulting to `[7000, 30000]`, and unlike the checkpoint and ply branches that condition has no `or step == max_steps - 1` fallback, so any run shorter than 7000 steps produced no metrics: `build_train_command` now always passes `--eval-steps <max_steps>`. Second, gsplat writes stats as `{stage}_step{step:04d}.json` but the ply as `point_cloud_{step}.ply`, and the two spellings coincide at step 6999, so the defect is invisible on the truck run and only breaks below 1000 steps. A later review round moved error translation to the boundary: `from_toml` raises `ConfigError` naming the file and accepts a UTF-8 BOM, and `run_training` raises `ArtifactError` naming the exit code and the log path.
 
-Six Minors are deferred to final branch review. Task 7: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Task 8: `collect_versions` catching bare `Exception` so a broken torch or gsplat install is indistinguishable from an absent one, and no test covering the `_git_commit` fallback or `ArtifactRecord.of` with a path outside `relative_to`. Task 9: loose inner-tuple type hints on two writers, and `write_images_bin` trusting that `xys` and `point3D_ids` are the same length. None affects trained non-empty clouds, validated run configuration, or the single fixture caller.
+`--skip-train` re-exports from an existing `train/` directory without retraining. On the tiny scene that is 2.7 seconds against 71.3 seconds, and it needs no vcvars shell, since nothing on that path imports gsplat. That is the loop to use when iterating on export, and from milestone 3 on compression.
+
+Current suite: `95 passed, 3 deselected` fast tier, `98 passed, 1 warning` complete tier in 91 seconds. The complete tier trains the real gsplat trainer twice, once per end-to-end test.
+
+Nine Minors are deferred to final branch review. Task 7: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Task 8: `collect_versions` catching bare `Exception` so a broken torch or gsplat install is indistinguishable from an absent one, and no test covering the `_git_commit` fallback or `ArtifactRecord.of` with a path outside `relative_to`. Task 9: loose inner-tuple type hints on two writers, and `write_images_bin` trusting that `xys` and `point3D_ids` are the same length. None affects trained non-empty clouds, validated run configuration, or the single fixture caller.
 
 ## How to work
 
@@ -97,7 +103,7 @@ git log --oneline -5
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
 ```
 
-Expected before Task 10: clean tree and synchronized tracking ref after the handoff commit; `94b80f6`, `b5e4328`, and `458686e` present in recent history; `master` at `da1c671`; `83 passed, 1 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected before Task 11: clean tree and synchronized tracking ref after the handoff commit; `14b65fa`, `bbbe8fe`, and `94b80f6` present in recent history; `master` at `da1c671`; `95 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 ## Writing style, non-negotiable
 
@@ -116,8 +122,7 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## Task order and what matters in each
 
-1. **Task 10, training stage and CLI.** First time the whole chain runs. Implement and review this task only, update the ledger and handoff, then stop. Do not start Task 11 in the same user turn. Treat a failure here as the real work of the task: every earlier task built a piece in isolation, and this is where they meet. It consumes `check_build_env()`, `SceneLayout.discover`, `RunPaths`, `read_ply`, `encode_splat`, `RunManifest` and `make_tiny_scene` together, and its end-to-end test is marked `gpu`, so it needs the chained `env.bat` invocation.
-2. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
+1. **Task 11, reproduce the truck scene.** This is the falsification step and the point of the milestone. Run the real scene through the new CLI and compare against the spike: PSNR 24.406, SSIM 0.8580, LPIPS 0.1372, `.ply` exactly 236,001,478 bytes. The `.ply` size must match exactly, since it is a function of Gaussian count and field list. Metrics should match to about two decimal places; the seed is fixed upstream at 42 but CUDA reductions are not bit-reproducible. **A PSNR differing by more than about 0.1 means something is genuinely different and needs investigating before you call the milestone done.**
 
 Also fold in the two deferred packaging issues at Task 11: `requirements.lock.txt` records the package as a `git+ssh` URL to a private remote, which nobody without SSH keys can install from, and `plyfile` is pinned `>=1.0` so it resolved to 1.1.3 rather than the 1.1.5 the spike ran on. Both are documented in `HANDOFF.md`, alongside the four deferred review Minors from Tasks 7 and 8.
 
