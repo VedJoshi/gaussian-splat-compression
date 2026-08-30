@@ -112,6 +112,14 @@ class RunConfig:
 
     @classmethod
     def from_toml(cls, path: str | Path) -> RunConfig:
-        with open(path, "rb") as handle:
-            data = tomllib.load(handle)
-        return replace(cls.from_dict(data), source_path=Path(path))
+        path = Path(path)
+        # utf-8-sig strips a leading byte order mark if present and is a no-op
+        # otherwise, so one decode handles both. PowerShell's
+        # Set-Content -Encoding utf8 and several Windows editors write a BOM
+        # by default, and tomllib.load rejects it outright.
+        text = path.read_bytes().decode("utf-8-sig")
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as error:
+            raise ConfigError(f"{path} is not valid TOML: {error}") from error
+        return replace(cls.from_dict(data), source_path=path)

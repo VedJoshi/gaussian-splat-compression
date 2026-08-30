@@ -1,9 +1,13 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from splatpipe.config import TrainConfig
-from splatpipe.stages.train import build_train_command, read_val_metrics
+from splatpipe.config import RunConfig, TrainConfig
+from splatpipe.errors import ArtifactError
+from splatpipe.paths import RunPaths
+from splatpipe.stages import train
+from splatpipe.stages.train import build_train_command, read_val_metrics, run_training
 
 
 def command_for(**overrides):
@@ -86,3 +90,28 @@ def test_read_val_metrics_pads_step_to_four_digits(tmp_path):
     metrics = read_val_metrics(tmp_path, max_steps=200)
     assert metrics["psnr"] == pytest.approx(18.1)
     assert metrics["num_GS"] == 5000
+
+
+def test_run_training_reports_a_failed_subprocess_via_the_log_path(tmp_path, monkeypatch):
+    """A trainer subprocess that exits non-zero must not surface a raw
+    CalledProcessError. Monkeypatched rather than trained for real, so this stays
+    CPU-only and fast; run_training's check=True is what needs covering, not the
+    trainer itself."""
+
+    def fake_run(command, **kwargs):
+        raise subprocess.CalledProcessError(returncode=1, cmd=command)
+
+    monkeypatch.setattr(train.subprocess, "run", fake_run)
+
+    paths = RunPaths.for_run(tmp_path / "out", "broken")
+    paths.ensure()
+
+    with pytest.raises(ArtifactError) as excinfo:
+        run_training(
+            Path("scene"),
+            paths,
+            RunConfig(name="broken"),
+            python=Path("py.exe"),
+            trainer_dir=Path("gsplat/examples"),
+        )
+    assert str(paths.train_log) in str(excinfo.value)

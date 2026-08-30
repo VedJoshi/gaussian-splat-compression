@@ -81,3 +81,28 @@ def test_source_path_is_recorded_but_is_not_a_parameter(tmp_path):
     assert "source_path" not in cfg.to_dict()
     assert cfg.digest() == RunConfig(name="tiny").digest()
     assert cfg == RunConfig(name="tiny")
+
+
+def test_toml_with_a_byte_order_mark_loads(tmp_path):
+    """PowerShell's Set-Content -Encoding utf8 and several Windows editors write
+    a leading BOM by default. A config saved that way must load the same as one
+    without it, tomllib.load rejects the BOM outright and raises here otherwise."""
+    text = 'name = "tiny"\n\n[train]\nmax_steps = 50\ncap_max = 5000\n'
+    plain = tmp_path / "plain.toml"
+    bommed = tmp_path / "bom.toml"
+    plain.write_text(text, encoding="utf-8")
+    bommed.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+
+    plain_cfg = RunConfig.from_toml(plain)
+    bom_cfg = RunConfig.from_toml(bommed)
+    assert bom_cfg.name == plain_cfg.name
+    assert bom_cfg.train == plain_cfg.train
+    assert bom_cfg.digest() == plain_cfg.digest()
+
+
+def test_invalid_toml_raises_a_config_error_naming_the_file(tmp_path):
+    path = tmp_path / "broken.toml"
+    path.write_text("name = \n", encoding="utf-8")  # missing value, not valid TOML
+    with pytest.raises(ConfigError) as excinfo:
+        RunConfig.from_toml(path)
+    assert str(path) in str(excinfo.value)

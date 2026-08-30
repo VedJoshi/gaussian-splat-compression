@@ -98,11 +98,17 @@ def run_training(
     with open(paths.train_log, "w", encoding="utf-8") as log:
         log.write(" ".join(command) + "\n\n")
         log.flush()
-        subprocess.run(
-            command,
-            cwd=str(trainer_dir),
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                command,
+                cwd=str(trainer_dir),
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise ArtifactError(
+                f"training exited with code {error.returncode}. "
+                f"See {paths.train_log} for the trainer's output."
+            ) from error
     return time.time() - started
