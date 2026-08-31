@@ -1,10 +1,17 @@
-# A record of the exact environment milestone 1 was verified against, on
-# Windows 11 with Python 3.11, CUDA 12.8 and MSVC 14.29. Regenerate with
-# `.venv\Scripts\python.exe -m pip freeze`.
+# The exact environment milestone 1 was verified against, on Windows 11 with
+# Python 3.11, CUDA 12.8 and MSVC 14.29.
 #
-# Not a one-shot installer. torch, torchvision and gsplat need the CUDA 12.8
-# index and a vcvars64 shell to build their extensions; see README.md and
-# scripts/setup_env.py, which owns the two required upstream patches.
+# Regenerate the dependency list with:
+#     .venv\Scripts\python.exe -m pip freeze --exclude-editable
+#
+# The "-e ." line below is maintained by hand. A plain pip freeze resolves an
+# editable install sitting inside a Git checkout to that checkout's own remote,
+# which here is a private SSH URL pinned to whatever commit was last pushed, so
+# its output is neither installable by anyone else nor stable across commits.
+#
+# Not a one-shot installer either way: torch, torchvision and gsplat need the
+# CUDA 12.8 index and a compiler shell to build their extensions. See the
+# provisioning section of README.md.
 -e .
 absl-py==2.5.0
 certifi==2026.7.22

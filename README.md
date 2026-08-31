@@ -53,25 +53,63 @@ rendering and gsplat's `PngCompression` baseline have not yet been measured.
 The scripted pipeline reproduces that baseline. The same scene run through
 `splatpipe` measures PSNR 24.395 dB, SSIM 0.8580 and LPIPS 0.1376 against the
 spike's 24.406, 0.8580 and 0.1372, and writes a `.ply` of exactly 236,001,478
-bytes. The metrics drift in the third decimal because CUDA reductions are not
-bit-reproducible even at gsplat's fixed seed of 42. The artifact sizes are
-exact, because they depend only on the Gaussian count and the field list.
+bytes. PSNR differs by 0.011 dB, SSIM by 1e-5 and LPIPS by 3e-4, because CUDA
+reductions are not bit-reproducible even at gsplat's fixed seed of 42. The
+artifact sizes are exact, because they depend only on the Gaussian count and
+the field list.
+
+## Provisioning a checkout
+
+The validated environment is Windows 11, Python 3.11, PyTorch 2.7.1 with CUDA
+12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is sensitive to
+all of them, so reproduce these versions before upgrading anything.
+
+```bat
+%LOCALAPPDATA%\Programs\Python\Python311\python.exe -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip wheel setuptools
+.venv\Scripts\python.exe -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+scripts\env.bat
+.venv\Scripts\python.exe -m pip install gsplat==1.5.3 --no-build-isolation
+git clone https://github.com/nerfstudio-project/gsplat.git _gsplat_repo
+.venv\Scripts\python.exe -m pip install -r _gsplat_repo\examples\requirements.txt
+.venv\Scripts\python.exe -m pip install -e .[dev]
+.venv\Scripts\python.exe scripts\setup_env.py
+```
+
+The order matters, and each constraint in it cost time to find:
+
+- Python 3.11 specifically. `python` and `py` resolve to 3.13 on the machine
+  this was built on, which the package rejects.
+- torch 2.7.1, not the latest. 2.11 fails to build the CUDA extension against
+  the Windows SDK. The `cu128` index matches the installed CUDA 12.8 toolkit.
+- `env.bat` before anything that compiles. `--no-build-isolation` makes gsplat
+  build against the installed torch, which is why `wheel` and `setuptools`
+  have to be present first.
+- `setup_env.py` last. It pins the gsplat checkout and patches two files in
+  `site-packages`, so both gsplat and pycolmap must already be installed. It
+  is idempotent, and `--check` reports status without changing anything.
+
+This sequence is reconstructed from [`SPIKE_LOG.txt`](SPIKE_LOG.txt), which
+records the environment being built the first time, including the failures.
+It has not been re-run on a clean machine. `requirements.lock.txt` records the
+versions it resolved to.
 
 ## Running the pipeline
 
 ```bat
 scripts\env.bat
-.venv\Scripts\python.exe scripts\setup_env.py
 .venv\Scripts\python.exe scripts\get_data.py
-.venv\Scripts\python.exe -m splatpipe.cli run data\tandt\truck --config configs\truck.toml --out out
+.venv\Scripts\splatpipe.exe run data\tandt\truck --config configs\truck.toml --out out
 ```
 
-`setup_env.py` pins the gsplat checkout and applies both Windows patches, and
+Installing the package puts `splatpipe` in `.venv\Scripts`. `.venv\Scripts\python.exe -m splatpipe.cli`
+is the same entry point.
+
 `get_data.py` downloads Tanks and Temples and builds the downscaled image
-folders. Both are one-time provisioning. `env.bat` loads the MSVC environment
-and is needed in every new shell, because the pipeline checks for a working
-compiler before spending GPU minutes. The run itself takes roughly 8 minutes on
-an RTX 4050 and writes:
+folders, once; on later runs it reports what it skipped. `env.bat` loads the
+MSVC environment and is needed in every new shell, because the pipeline checks
+for a working compiler before spending GPU minutes. The run itself takes
+roughly 8 minutes on an RTX 4050 and writes:
 
     out/truck/artifacts/scene.ply    the trained 3DGS model
     out/truck/artifacts/scene.splat  the 32-byte-per-Gaussian viewer format
@@ -85,12 +123,13 @@ training again, which is the loop to use when changing export settings.
 
 The supported path is the command above. Underneath it, the pipeline runs
 gsplat's trainer directly, which is worth knowing when debugging a training
-failure:
+failure. Point it at a scratch directory rather than at `out/truck/train`,
+whose contents `out/truck/manifest.json` describes:
 
 ```bat
 cd _gsplat_repo\examples
 ..\..\.venv\Scripts\python.exe simple_trainer.py mcmc --data-dir ..\..\data\tandt\truck ^
-  --result-dir ..\..\out\truck\train --data-factor 1 --max-steps 7000 --test-every 8 ^
+  --result-dir ..\..\out\scratch --data-factor 1 --max-steps 7000 --test-every 8 ^
   --eval-steps 7000 --save-ply --disable-viewer --strategy.cap-max 1000000
 ```
 
@@ -104,7 +143,7 @@ cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q 
 
 The fast tier is 95 tests and deselects the 3 GPU-marked ones. The complete
 tier is 98 and trains the real gsplat trainer twice on a synthetic 24-image
-scene, taking about a minute and a half.
+scene, which has measured between 1.5 and 2.5 minutes on this machine.
 
 ## Repository layout
 
@@ -154,15 +193,6 @@ rendering performance.
 | 6. Viewer integration | Browser renderer for the project format | Planned |
 | 7. Three-scene site | Public comparison across real scenes | Planned |
 | 8. Evaluation writeup | Curves, ablations, and failure analysis | Planned |
-
-## Environment
-
-The validated environment is Windows 11, Python 3.11, PyTorch 2.7.1 with CUDA
-12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is sensitive to
-version changes, so the pinned environment should be reproduced before
-dependencies are upgraded. `requirements.lock.txt` records the exact resolved
-versions; it is a record rather than a one-shot installer, because torch and
-gsplat need the CUDA index and a compiler shell.
 
 ## Documentation
 

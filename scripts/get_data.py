@@ -5,7 +5,7 @@ gsplat's colmap Parser requires an `images_<factor>` folder to already exist
 `images/`, so we generate the downscaled folders ourselves. We write PNG so the
 parser's jpg-rescale branch (colmap.py:193) is skipped and our images are used.
 """
-import os, sys, time, zipfile, urllib.request
+import time, zipfile, urllib.request
 from pathlib import Path
 
 URL = "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/input/tandt_db.zip"
