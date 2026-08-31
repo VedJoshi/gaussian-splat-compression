@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import pytest
 
 from splatpipe.config import ExportConfig, RunConfig, TrainConfig
 from splatpipe.errors import ConfigError
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_defaults_match_the_spike():
@@ -66,7 +70,7 @@ def test_loads_from_toml(tmp_path):
 
 
 def test_the_checked_in_truck_config_loads():
-    cfg = RunConfig.from_toml("configs/truck.toml")
+    cfg = RunConfig.from_toml(REPO_ROOT / "configs" / "truck.toml")
     assert cfg.name == "truck"
     assert cfg.train.max_steps == 7000
 

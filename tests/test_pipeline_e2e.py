@@ -1,7 +1,7 @@
 import pytest
 
 from splatpipe.cli import main
-from splatpipe.config import ExportConfig, RunConfig, TrainConfig
+from splatpipe.config import RunConfig
 from splatpipe.formats.splat import BYTES_PER_GAUSSIAN
 from splatpipe.gaussians import read_ply
 from splatpipe.manifest import RunManifest

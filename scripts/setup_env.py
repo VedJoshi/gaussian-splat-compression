@@ -3,8 +3,10 @@
     python scripts/setup_env.py --check    report status, change nothing
     python scripts/setup_env.py            clone gsplat at the pin, apply patches
 
-Must be run inside scripts/env.bat, because resolving the gsplat patch target
-imports gsplat.
+Runs without scripts/env.bat and without a GPU. Resolving a patch target
+locates the installed file on disk rather than importing it, so this script can
+run before gsplat is able to compile anything, which is what lets it provision a
+fresh machine. See resolve_target in scripts/patches/definitions.py.
 """
 
 from __future__ import annotations

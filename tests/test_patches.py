@@ -16,6 +16,19 @@ INDENTED = Patch(
     replacements=(Replacement(old="    value = original\n", new="    value = patched\n"),),
 )
 
+MARKED = Patch(
+    name="marked",
+    module="does.not.matter",
+    reason="applied_marker regression guard",
+    replacements=(
+        Replacement(
+            old="value = original\n",
+            new="# PATCHED by scripts/setup_env.py: the reason.\nvalue = patched\n",
+            applied_marker="value = patched",
+        ),
+    ),
+)
+
 
 def write(tmp_path, text):
     target = tmp_path / "module.py"
@@ -34,6 +47,24 @@ def test_apply_is_idempotent(tmp_path):
     apply_patch(SIMPLE, target)
     assert apply_patch(SIMPLE, target) == "already-applied"
     assert target.read_text(encoding="utf-8") == "a = 2\n"
+
+
+def test_applied_marker_and_not_the_full_replacement_decides_applied_ness(tmp_path):
+    """A file carrying the changed line without the comment banner is applied.
+
+    The real gsplat patch inserts a comment above the line it rewrites, so a
+    file patched by any other route matches the marker but not the whole `new`
+    text. Falling back to `new` would call that file stale, and stale sends
+    setup_env.py to re-derive a patch that is already in place.
+
+    This asserts the marker is load-bearing: with the fallback, `new` is absent
+    and `old` is absent, so patch_status would return "stale" and apply_patch
+    would raise instead of reporting already-applied.
+    """
+    target = write(tmp_path, "value = patched\n")
+    assert MARKED.replacements[0].new not in target.read_text(encoding="utf-8")
+    assert patch_status(MARKED, target) == "applied"
+    assert apply_patch(MARKED, target) == "already-applied"
 
 
 def test_status_reports_stale_when_the_anchor_is_gone(tmp_path):

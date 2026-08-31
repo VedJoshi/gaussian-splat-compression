@@ -25,7 +25,7 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 Use branch `milestone-1-scripted-pipeline`. `origin/master` is at `da1c671`. There is no `main` branch and no pull request.
 
-**All 11 tasks are implemented, reviewed and complete. Milestone 1 is done.** No task is in flight. What remains on this branch is the broad whole-branch review and the merge decision, not implementation.
+**All 11 tasks are implemented and reviewed, and the branch has since been reviewed as a whole. Milestone 1 is done.** No task is in flight. The only thing left is the merge decision.
 
 **The pipeline reproduces the spike on the real truck scene.** That was the milestone's falsification criterion. Measured PSNR 24.394817 against the spike's 24.406155, a delta of 0.0113 dB against a 0.1 tolerance fixed before the run; SSIM 0.8579996 against 0.8580129; LPIPS 0.1375573 against 0.1372071; exactly 1,000,000 Gaussians; a `.ply` of exactly 236,001,478 bytes, matching the spike to the byte; and a `.splat` of exactly 32,000,000. Training took 8.03 minutes. No expected value was adjusted after the fact, and an independent reviewer re-derived every number from disk.
 
@@ -43,9 +43,11 @@ Task 10 added `src/splatpipe/stages/train.py` and `src/splatpipe/cli.py`. Traini
 
 Task 11 ran the real truck scene through the CLI and compared it against the spike. Its preflight found that `out/` was not git-ignored while the brief's own final step was `git add -A`, which would have staged roughly 700 MB including two 236 MB plys and produced a commit GitHub rejects at push; `/out/` is now ignored. Its step 6 could not be followed literally, because commit `da1c671` had already deleted the README sections it names, so the intent was honoured against the current structure instead. A control worth knowing about: the new `.splat` hashes differently from the one recorded for the spike, and re-encoding the spike's own ply through today's code reproduces the old hash exactly, which proves the difference is CUDA non-determinism in training rather than a change in the encoder.
 
-Current suite: `95 passed, 3 deselected` fast tier, `98 passed, 1 warning` complete tier, measured between 91 and 151 seconds on the same machine. The complete tier trains the real gsplat trainer twice, once per end-to-end test.
+Current suite: `116 passed, 3 deselected` fast tier, `119 passed` complete tier in about two minutes on a settled GPU, longer when it is already warm. The complete tier trains the real gsplat trainer twice, once per end-to-end test.
 
-Nine Minors are deferred to final branch review. Task 7: error precedence when both the cloud and order are invalid, and the raw NumPy `ValueError` for empty Morton input. Task 8: `collect_versions` catching bare `Exception` so a broken torch or gsplat install is indistinguishable from an absent one, and no test covering the `_git_commit` fallback or `ArtifactRecord.of` with a path outside `relative_to`. Task 9: loose inner-tuple type hints on two writers, and `write_images_bin` trusting that `xys` and `point3D_ids` are the same length. None affects trained non-empty clouds, validated run configuration, or the single fixture caller.
+**The provisioning sequence in `README.md` is verified, not guessed.** It was run against an empty directory on 2026-08-31: all seven steps succeed, both patches apply to the fresh venv's own site-packages, and that venv passes all 119 tests. Running it found three defects reading had not, all now fixed. `DISTUTILS_USE_SDK` was set nowhere, so torch refused to build any CUDA extension inside a vcvars shell. `setup_env.py` could not bootstrap at all: it imported gsplat to locate the file it patches, and that import triggers the JIT compile which fails with exactly the error the patch exists to prevent. And the documented dependency step pulled `fused-bilagrid`, which does not compile under MSVC and which this project has never had installed.
+
+The nine deferred Minors are closed: five fixed after the whole-branch review, four consciously accepted with the reasoning recorded in `HANDOFF.md`. The review raised two of them above Minor and was right to: `write_images_bin` trusting its two list lengths was silent corruption in the fixture the end-to-end test depends on, and the absent CPU coverage of `run_pipeline` was the largest gap on the branch.
 
 ## How to work
 
@@ -91,7 +93,9 @@ Use `-o addopts=` for the complete suite. `-m gpu` selects only GPU-marked tests
 
 **Do not verify that setup by adding `echo %CUDA_HOME%` to the same `cmd /c` line.** `cmd` expands variables when it parses the line, before `env.bat` has run, so it prints the literal text `%CUDA_HOME%` and looks like a failure when everything is fine. Check from a child Python process instead, which sees the real environment.
 
-**Anything that imports gsplat needs that build shell.** gsplat's CUDA backend runs `where cl` on import even when the extension is already compiled and cached.
+**Anything that imports gsplat needs that build shell.** gsplat's CUDA backend runs `where cl` on import even when the extension is already compiled and cached. `scripts/setup_env.py` is the exception and no longer needs it: it locates the files it patches on disk rather than importing them, which is what lets it provision a machine where gsplat cannot yet compile.
+
+**`env.bat` sets `DISTUTILS_USE_SDK=1`.** Without it torch's `cpp_extension._check_abi` refuses to build any CUDA extension inside an activated VC environment, which blocks `fused-ssim`. This is invisible on a machine where everything is already built, and fatal on a fresh one.
 
 **Do not upgrade anything.** In particular:
 - `torch==2.7.1+cu128` and `torchvision==0.22.1+cu128`. torch 2.11 cannot build CUDA extensions on Windows: `CUDACachingAllocator.h:105` declares a parameter named `small`, and the Windows SDK's `rpcndr.h:190` has `#define small char`.
@@ -132,10 +136,8 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## What is left
 
-1. **Run the broad whole-branch review**, `master..milestone-1-scripted-pipeline`. Each per-task review saw a single commit; nothing has read the branch as a whole. Use `REVIEWER_AGENT.md` with that scope.
-2. **Clear the nine deferred Minors, or consciously accept each one.** They are listed individually in `HANDOFF.md`. None affects trained non-empty clouds, validated run configuration, or the single fixture caller, which is why they were deferred rather than fixed.
-3. **Decide the merge into `master`.** Use `superpowers:finishing-a-development-branch` once the whole-branch review is clean.
-4. **Verify the provisioning sequence on a clean venv.** The `## Provisioning a checkout` section of `README.md` is reconstructed from `SPIKE_LOG.txt` and has never been re-run from scratch. It is the one documented path a second machine would follow, and the project's claim is reproducibility, so this is the largest untested assertion in the repository.
+1. **Decide the merge into `master`.** Use `superpowers:finishing-a-development-branch`. This is the only thing left, and it is Ved's call.
+2. Everything else is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; and the provisioning sequence has been verified against an empty directory rather than reconstructed.
 
 The two packaging issues that were deferred to Task 11 are closed. `requirements.lock.txt` no longer records the package through a private `git+ssh` URL; note that a plain `pip freeze` will put it back, because pip resolves an editable install inside a Git checkout to that checkout's remote, so regenerate with `pip freeze --exclude-editable` and leave the hand-maintained `-e .` line alone. `plyfile` deliberately stays `>=1.0` in `pyproject.toml` and `==1.1.3` in the lock: the version cannot affect the byte target, since gsplat writes the `.ply` through its own `splat2ply_bytes` and never imports plyfile.
 

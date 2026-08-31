@@ -67,7 +67,10 @@ def collect_versions() -> dict[str, str]:
     for name in ("torch", "gsplat"):
         try:
             versions[name] = __import__(name).__version__
-        except Exception:  # noqa: BLE001 - torch/gsplat are optional outside training
+        # Deliberately broad: a manifest must never fail a run over a version
+        # string. The cost is that a broken install and an absent one both
+        # record "not-imported", which is acceptable for an informational field.
+        except Exception:  # noqa: BLE001
             versions[name] = "not-imported"
     return versions
 

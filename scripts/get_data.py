@@ -27,13 +27,16 @@ if not ZIP.exists():
 else:
     print(f"zip already present: {ZIP.stat().st_size/2**30:.2f} GiB")
 
-print("extracting tandt/truck only ...")
-with zipfile.ZipFile(ZIP) as z:
-    members = [m for m in z.namelist() if m.startswith("tandt/truck/")]
-    print(f"  {len(members)} members")
-    z.extractall(OUT, members=members)
-
 scene = OUT / "tandt" / "truck"
+if (scene / "sparse" / "0" / "points3D.bin").is_file() and any((scene / "images").glob("*.jpg")):
+    print("tandt/truck already extracted, skipping")
+else:
+    print("extracting tandt/truck only ...")
+    with zipfile.ZipFile(ZIP) as z:
+        members = [m for m in z.namelist() if m.startswith("tandt/truck/")]
+        print(f"  {len(members)} members")
+        z.extractall(OUT, members=members)
+
 print("scene contents:", sorted(p.name for p in scene.iterdir()))
 
 # build downscaled folders

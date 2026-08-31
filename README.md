@@ -10,12 +10,11 @@ removed or quantized before the visual loss becomes unacceptable?
 
 ## Project status
 
-Milestone 1 is complete on the
-[`milestone-1-scripted-pipeline`](https://github.com/VedJoshi/gaussian-splat-compression/tree/milestone-1-scripted-pipeline)
-branch. One command now trains a COLMAP scene and packages it, and it
-reproduces the feasibility baseline below.
+Milestone 1 is complete. One command now trains a COLMAP scene and packages it,
+and it reproduces the feasibility baseline below.
 
-All eleven implementation tasks have passed review. The branch provides:
+All eleven implementation tasks passed review, and the branch was reviewed
+again as a whole before it was called done. The pipeline provides:
 
 - validated run configuration and deterministic parameter digests
 - Windows CUDA and compiler preflight checks
@@ -60,39 +59,56 @@ the field list.
 
 ## Provisioning a checkout
 
-The validated environment is Windows 11, Python 3.11, PyTorch 2.7.1 with CUDA
-12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is sensitive to
-all of them, so reproduce these versions before upgrading anything.
+Two things must be installed first, because `scripts\env.bat` expects both at
+fixed paths and neither arrives through pip:
+
+- **Visual Studio 2019 Build Tools** with the C++ workload, at the default
+  location. `env.bat` calls its `vcvars64.bat` directly. MSVC 14.29 is the
+  validated toolset.
+- **CUDA Toolkit 12.8**, at the default location. It has to match the `cu128`
+  torch build; 12.9 is first on `PATH` by default on this machine and does not
+  match, which is why `env.bat` puts 12.8 in front.
+
+Then, from the repository root:
 
 ```bat
 %LOCALAPPDATA%\Programs\Python\Python311\python.exe -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip wheel setuptools
 .venv\Scripts\python.exe -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
 scripts\env.bat
-.venv\Scripts\python.exe -m pip install gsplat==1.5.3 --no-build-isolation
-git clone https://github.com/nerfstudio-project/gsplat.git _gsplat_repo
-.venv\Scripts\python.exe -m pip install -r _gsplat_repo\examples\requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.lock.txt --no-build-isolation --extra-index-url https://download.pytorch.org/whl/cu128
 .venv\Scripts\python.exe -m pip install -e .[dev]
 .venv\Scripts\python.exe scripts\setup_env.py
 ```
 
-The order matters, and each constraint in it cost time to find:
+This sequence was run against an empty directory on 2026-08-31 and checked: all
+seven steps succeed, `setup_env.py --check` reports the pinned gsplat checkout
+and both patches `applied`, and the resulting venv passes the test suite. Each
+line earns its place:
 
-- Python 3.11 specifically. `python` and `py` resolve to 3.13 on the machine
-  this was built on, which the package rejects.
-- torch 2.7.1, not the latest. 2.11 fails to build the CUDA extension against
-  the Windows SDK. The `cu128` index matches the installed CUDA 12.8 toolkit.
-- `env.bat` before anything that compiles. `--no-build-isolation` makes gsplat
-  build against the installed torch, which is why `wheel` and `setuptools`
-  have to be present first.
-- `setup_env.py` last. It pins the gsplat checkout and patches two files in
-  `site-packages`, so both gsplat and pycolmap must already be installed. It
-  is idempotent, and `--check` reports status without changing anything.
+- Python 3.11 specifically. `python` and `py` resolve to 3.13 on this machine,
+  which the package rejects.
+- torch 2.7.1, not the latest. 2.11 cannot build CUDA extensions on Windows:
+  `CUDACachingAllocator.h` declares a parameter named `small` and the Windows
+  SDK's `rpcndr.h` has `#define small char`.
+- `env.bat` before anything that compiles, and `--no-build-isolation` so
+  `fused-ssim` builds against the installed torch rather than an isolated
+  environment with no torch in it. That is why `wheel` and `setuptools` come
+  first.
+- `requirements.lock.txt` rather than `_gsplat_repo\examples\requirements.txt`.
+  The example file additionally pulls `fused-bilagrid`, which does not compile
+  under MSVC (`error C2398`, a narrowing conversion) and which this project
+  has never had installed. It is only needed for gsplat's bilateral grid
+  option, which the pipeline does not use.
+- `setup_env.py` last, once the two files it patches are on disk. It clones the
+  gsplat trainer at its pin and applies both Windows patches. It needs no GPU
+  and no compiler shell, and `--check` reports status without changing
+  anything.
 
-This sequence is reconstructed from [`SPIKE_LOG.txt`](SPIKE_LOG.txt), which
-records the environment being built the first time, including the failures.
-It has not been re-run on a clean machine. `requirements.lock.txt` records the
-versions it resolved to.
+`requirements.lock.txt` is the pinned set that produced the measured result
+above. Regenerate its dependency list with `pip freeze --exclude-editable`; the
+`-e .` line at the top is maintained by hand, because pip resolves an editable
+install inside a Git checkout to that checkout's remote.
 
 ## Running the pipeline
 
@@ -141,9 +157,12 @@ what makes the project resumable after a gap:
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-The fast tier is 95 tests and deselects the 3 GPU-marked ones. The complete
-tier is 98 and trains the real gsplat trainer twice on a synthetic 24-image
-scene, which has measured between 1.5 and 2.5 minutes on this machine.
+The fast tier is 116 tests and deselects the 3 GPU-marked ones. The complete
+tier is 119 and trains the real gsplat trainer twice on a synthetic 24-image
+scene, which takes a few minutes and varies with how warm the GPU already is.
+
+A venv provisioned from scratch by the steps above passes all 119, which is
+what makes the sequence a claim rather than a hope.
 
 ## Repository layout
 

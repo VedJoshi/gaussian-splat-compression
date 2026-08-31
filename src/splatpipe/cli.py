@@ -52,6 +52,16 @@ def run_pipeline(
 
     manifest.metrics = read_val_metrics(paths.train_dir, cfg.train.max_steps)
 
+    # read_val_metrics runs first, so a train/ directory holding stats but no
+    # final ply reaches this line. That combination is unlikely but it is not
+    # unreachable, and without this the copy below raises a bare
+    # FileNotFoundError straight past the CLI's error contract.
+    if not trained_ply.is_file():
+        raise ArtifactError(
+            f"training left no final model at {trained_ply}. "
+            f"See {paths.train_log} for the trainer's output."
+        )
+
     started = time.time()
     shutil.copyfile(trained_ply, paths.ply)
     cloud = read_ply(paths.ply)

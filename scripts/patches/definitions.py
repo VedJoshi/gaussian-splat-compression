@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
 from pathlib import Path
 
 from scripts.patches import Patch, Replacement
@@ -69,12 +69,38 @@ ALL_PATCHES = (GSPLAT_MSVC_FLAGS, PYCOLMAP_STRUCT_WIDTHS)
 
 
 def resolve_target(patch: Patch) -> Path:
-    """Find the installed source file a patch targets.
+    """Find the installed source file a patch targets, without executing it.
 
-    Imports the module rather than guessing at site-packages layout, so this
-    works for a venv, a user install, or an editable checkout.
+    This used to call importlib.import_module, which reads better and cannot
+    bootstrap. Importing gsplat.cuda._backend runs gsplat's __init__, which
+    JIT-compiles the CUDA extension, which is the very thing the MSVC flag
+    patch exists to make possible: on a fresh install the import died with
+    `cl : Command line error D8021 : invalid numeric argument '/Wno-attributes'`
+    before it could report which file to patch. Verified by provisioning a
+    clean venv on 2026-08-31.
+
+    find_spec on a top-level name locates the package without running it. The
+    submodule path is then walked on disk. find_spec is not used on the dotted
+    name directly, because for a dotted name it imports the parent package,
+    which is the deadlock again.
     """
-    module = importlib.import_module(patch.module)
-    if module.__file__ is None:
-        raise RuntimeError(f"{patch.module} has no __file__ and cannot be patched")
-    return Path(module.__file__)
+    top_level, _, submodule = patch.module.partition(".")
+    spec = importlib.util.find_spec(top_level)
+    if spec is None:
+        raise RuntimeError(f"{top_level} is not installed, so {patch.name} cannot be resolved")
+
+    if not submodule:
+        if spec.origin is None:
+            raise RuntimeError(f"{patch.module} has no file on disk and cannot be patched")
+        return Path(spec.origin)
+
+    if not spec.submodule_search_locations:
+        raise RuntimeError(f"{top_level} is not a package, so {patch.module} cannot be resolved")
+
+    root = Path(next(iter(spec.submodule_search_locations)))
+    parts = submodule.split(".")
+    candidates = (root.joinpath(*parts).with_suffix(".py"), root.joinpath(*parts, "__init__.py"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(f"{patch.module} was not found under {root}, tried {candidates}")

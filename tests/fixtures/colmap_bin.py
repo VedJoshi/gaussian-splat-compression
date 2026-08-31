@@ -30,6 +30,15 @@ def write_images_bin(path: Path, images: Sequence[tuple]) -> None:
     with open(path, "wb") as f:
         f.write(struct.pack("<Q", len(images)))
         for image_id, qvec, tvec, camera_id, name, xys, point3D_ids in images:
+            # count2D is written from len(xys) and the loop below zips, so a
+            # caller passing lists of different lengths would produce a
+            # structurally valid file whose header contradicts its contents.
+            # That is silent corruption in the fixture the end-to-end test
+            # depends on, and it fails far away from its cause.
+            if len(xys) != len(point3D_ids):
+                raise ValueError(
+                    f"image {name}: {len(xys)} xys but {len(point3D_ids)} point3D_ids"
+                )
             f.write(struct.pack("<I4d3dI", image_id, *qvec, *tvec, camera_id))
             f.write(name.encode("utf-8") + b"\x00")
             f.write(struct.pack("<Q", len(xys)))

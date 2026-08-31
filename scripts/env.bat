@@ -13,4 +13,11 @@ REM Ada only. Without this the build targets every architecture and takes ~8x lo
 set "TORCH_CUDA_ARCH_LIST=8.9"
 set "MAX_JOBS=4"
 
+REM torch's cpp_extension._check_abi raises when it sees an activated VC
+REM environment without this set, which stops fused-ssim and fused-bilagrid
+REM from building at all. Confirmed on a clean venv on 2026-08-31:
+REM "UserWarning: It seems that the VC environment is activated but
+REM DISTUTILS_USE_SDK is not set."
+set "DISTUTILS_USE_SDK=1"
+
 echo Environment ready. CUDA_HOME=%CUDA_HOME%

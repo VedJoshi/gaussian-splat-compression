@@ -1,4 +1,4 @@
-# Handoff: Milestone 1 scripted splat pipeline: 2026-08-31 (all 11 tasks complete)
+# Handoff: Milestone 1 scripted splat pipeline: 2026-08-31 (complete, reviewed, merge pending)
 
 ## Goal
 
@@ -8,8 +8,8 @@ must train a COLMAP scene and emit a `.ply`, a `.splat`, and a manifest that
 records exactly what produced them, providing the foundation for later
 rate-distortion compression research.
 
-**This goal is met.** The remaining work on this branch is the broad
-whole-branch review and the merge decision, not implementation.
+**This goal is met, and the branch has been reviewed as a whole.** The only
+remaining work is the merge decision, which is Ved's.
 
 ## Completed
 
@@ -58,10 +58,17 @@ whole-branch review and the merge decision, not implementation.
   recorded weeks earlier. The new run's `.splat` differs only because CUDA
   reductions are not bit-reproducible at a fixed seed, not because any code
   moved. The reviewer reproduced this control independently.
-- Verification at the close of Task 11: `95 passed, 3 deselected` in the fast
-  tier; `98 passed, 1 warning` in the complete tier. The warning is the known
-  pycolmap `np.uint64(-1)` deprecation. The gsplat checkout reports `pinned`
-  and both patches `applied`.
+- The whole branch was reviewed as one body of work after Task 11, and the
+  fix pass that followed closed every Important finding. See the ledger.
+- **The provisioning sequence in `README.md` is verified, not reconstructed.**
+  It was run against an empty directory on 2026-08-31. All seven steps
+  succeed, both patches apply to the fresh venv's own site-packages, and
+  that venv passes the complete tier, 119 tests, in 489 seconds including
+  the first-time CUDA compile.
+- Verification after the fix pass: `116 passed, 3 deselected` fast tier and
+  `119 passed` complete tier, in both the working venv and a freshly
+  provisioned one. The pycolmap `np.uint64(-1)` deprecation warning is gone,
+  because `resolve_target` no longer imports gsplat or pycolmap.
 - `da1c671` replaced the default branch's spike-style README with a project
   overview. `458686e` merged that forward. `35daec6` records the remote and
   merge policy.
@@ -76,41 +83,36 @@ whole-branch review and the merge decision, not implementation.
 
 ## Not Working / Blockers
 
-- Nothing is broken. The repository, venv, GPU test tier, gsplat checkout, and
-  both installed patches are healthy.
-- **The nine deferred Minor findings from Tasks 7 through 10 are still open.**
-  They were deliberately left to the whole-branch review rather than folded
-  into Task 11, whose job was falsification:
+- Nothing is broken. The repository, both venvs, the GPU test tier, the gsplat
+  checkout, and both installed patches are healthy.
+- **Five of the nine deferred Minors were fixed; four are consciously
+  accepted.** The whole-branch review ruled on each. Accepted, with reasons:
   - Task 7: an invalid cloud combined with an unknown order raises
-    `ArtifactError` before `ConfigError`, because cloud validation runs first.
-  - Task 7: an empty cloud with Morton ordering raises NumPy's raw zero-size
-    reduction `ValueError`. Training cannot produce an empty final cloud.
+    `ArtifactError` before `ConfigError`. Validating data before dispatching on
+    an order string is the right sequence and both outcomes are errors.
   - Task 8: `collect_versions` catches bare `Exception` around the torch and
     gsplat imports, so a broken install records `not-imported` identically to
-    an absent one. The field is informational.
-  - Task 8: no test covers the `_git_commit` fallback branch, or
-    `ArtifactRecord.of` called with a path outside `relative_to`.
+    an absent one. A manifest must never fail a run over a version string.
+  - Task 8: no test covers the `_git_commit` fallback branch or
+    `ArtifactRecord.of` with a path outside `relative_to`. The fallback is a
+    plain try/except with nothing to get wrong, and no caller can reach the
+    second case: `run_pipeline` always passes paths under `paths.root`.
   - Task 9: `write_images_bin` and `write_points3D_bin` annotate their inputs
-    as `Sequence[tuple]` with an untyped inner tuple, unlike `write_cameras_bin`.
-  - Task 9: `write_images_bin` trusts `len(xys) == len(point3D_ids)` without
-    asserting it. A mismatched caller would make `zip` truncate silently while
-    the already-written `count2D` header still claimed the longer length.
-  - Task 10: `tests/test_pipeline_e2e.py` imports `ExportConfig` and
-    `TrainConfig` without using either.
-  - Task 10: no CPU test exercises `run_pipeline`'s orchestration, so stage
-    ordering and the `--skip-train` `ArtifactError` path are covered only by the
-    two GPU-marked tests. Widening this needs a `run_training` stub.
-  - Task 10: the non-skip-train branch does not check `trained_ply.is_file()`
-    before copying, so a training that somehow omitted the final `.ply` would
-    raise a bare `FileNotFoundError`. Unreachable in practice.
+    as `Sequence[tuple]` with an untyped inner tuple. Cosmetic, test-only.
+- **Open, and worth doing before the container format in milestone 5**: the
+  `.splat` byte-parity tests against gsplat use tie-free inputs, and both
+  implementations sort Morton codes with an unstable argsort. A million
+  Gaussians in a 1024 cubed grid will produce ties, so parity in that regime is
+  untested. This does not affect this project's own reproducibility, which
+  re-encodes a fixed `.ply` deterministically and is proved by the encoder
+  control above.
 - `_anchor_positions` deliberately treats indentation-free pycolmap anchors as
   substrings. Its uniqueness guard handles the current patches, but a future
-  patch could theoretically alias inside a larger expression.
-- The provisioning sequence now in `README.md` is reconstructed from
-  `SPIKE_LOG.txt` and **has not been re-run on a clean machine**. It is the best
-  available account, not a verified one. Verifying it needs a second machine or
-  a throwaway venv, and is the strongest remaining threat to the reproducibility
-  claim.
+  patch could theoretically alias inside a larger expression. The failure mode
+  is a loud refusal, not corruption: the uniqueness guard and the `ast.parse`
+  gate both stand behind it.
+- `scripts/browser_test.js` hardcodes two absolute paths under the author's
+  home directory. It is spike-era tooling that nothing in the pipeline calls.
 - Phone captures still have no scheduled pose-estimation stage. This blocks the
   later three-scene deployment milestone, not milestone 1.
 
@@ -172,26 +174,36 @@ whole-branch review and the merge decision, not implementation.
   the abstract floor and the concrete pin are different jobs. The version
   cannot affect the byte target, because gsplat writes the `.ply` through its
   own `splat2ply_bytes` and never imports plyfile. Closed, not deferred.
+- **`env.bat` sets `DISTUTILS_USE_SDK=1`**: torch's
+  `cpp_extension._check_abi` raises when it sees an activated VC
+  environment without it, so no CUDA extension builds at all. This blocked
+  provisioning entirely and was invisible on this machine, where everything
+  was already compiled.
+- **`resolve_target` locates a patch target without importing it**:
+  importing `gsplat.cuda._backend` runs gsplat's `__init__`, which JIT
+  compiles, which fails with the exact error the patch prevents. The script
+  had to import the broken thing to discover which file to fix. It uses
+  `importlib.util.find_spec` on the top-level package, never on the dotted
+  name, because a dotted name imports the parent and restores the deadlock.
+- **Provision from `requirements.lock.txt`, not gsplat's example
+  requirements**: the example file pulls `fused-bilagrid`, which does not
+  compile under MSVC and which this project has never had installed. It
+  serves gsplat's bilateral grid option, which the pipeline does not use.
 - **Style is binding**: no emoji, em dashes, litotes, irony, or exclamation
   marks. Use plain declarative prose and comment only non-obvious reasoning.
 
 ## Next Steps
 
-1. **(P0) Run the broad whole-branch review**, `master..milestone-1-scripted-pipeline`.
-   Paste `REVIEWER_AGENT.md` into a fresh session with that scope. The
-   per-task reviews each saw one commit; nothing has yet read the branch as a
-   whole.
-2. **(P1) Clear the nine deferred Minors** listed above, or consciously accept
-   each one. They are individually small and collectively the last code debt in
-   the milestone.
-3. **(P1) Decide the merge into `master`.** The success criterion is met, so
-   the branch is mergeable on the merits. Use
-   `superpowers:finishing-a-development-branch` once the whole-branch review is
-   clean.
-4. **(P2) Verify the provisioning sequence on a clean venv.** It is
-   reconstructed, not tested, and it is the one documented path a second
-   machine would follow.
-5. **(P2) Decide whether phone captures gain a COLMAP stage around milestone
+1. **(P0) Decide the merge into `master`.** This is the only thing standing
+   between the branch and done. The success criterion is met, the whole-branch
+   review is closed, and the provisioning sequence is verified. Use
+   `superpowers:finishing-a-development-branch`.
+2. **(P2) Consider the four accepted Minors closed** unless something changes.
+   They are listed above with the reasoning for each, so they do not need
+   rediscovering.
+3. **(P2) Revisit Morton tie-breaking before milestone 5**, if the container
+   format is going to claim byte parity with gsplat.
+4. **(P1) Decide whether phone captures gain a COLMAP stage around milestone
    6.5, or whether the three deployment scenes come from public datasets.**
    This is an owner decision for Ved and is the one spec success criterion
    nothing in milestones 1 to 8 currently schedules.

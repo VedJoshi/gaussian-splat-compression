@@ -85,10 +85,20 @@ class RunConfig:
     source_path: Path | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
+        # TOML supplies whatever type the file wrote, so the type check comes
+        # first: `name = 2024` otherwise reached the membership test below and
+        # raised TypeError from inside a validator whose job is ConfigError.
+        if not isinstance(self.name, str):
+            raise ConfigError(f"name must be a string, got {self.name!r}")
         if not self.name or any(c in self.name for c in r'\/:*?"<>| '):
             raise ConfigError(
                 f"name must be a non-empty string usable as a directory name, got {self.name!r}"
             )
+        # The separator characters above are blocked, but "." and ".." are made
+        # of legal characters and still escape --out: RunPaths.for_run joins the
+        # name onto the output root, so ".." would write artifacts to its parent.
+        if self.name in (".", ".."):
+            raise ConfigError(f"name must not be a path traversal component, got {self.name!r}")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -105,6 +115,12 @@ class RunConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RunConfig:
         data = dict(data)
+        # source_path is a field, so _reject_unknown would accept it from a
+        # file. It is the one field to_dict() strips precisely so that an
+        # absolute local path cannot reach manifest.json, and from_toml
+        # overwrites it regardless, so accepting it can only mislead.
+        if "source_path" in data:
+            raise ConfigError("source_path is set by the loader and cannot be given in a config")
         train = TrainConfig.from_dict(data.pop("train", {}))
         export = ExportConfig.from_dict(data.pop("export", {}))
         _reject_unknown(cls, data)
@@ -117,7 +133,14 @@ class RunConfig:
         # otherwise, so one decode handles both. PowerShell's
         # Set-Content -Encoding utf8 and several Windows editors write a BOM
         # by default, and tomllib.load rejects it outright.
-        text = path.read_bytes().decode("utf-8-sig")
+        # A missing --config path is the likeliest mistake anyone makes with
+        # this CLI, and OSError covers the rest of the ways a path can fail to
+        # be a readable file: a directory, a permission denial, a bad drive.
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            raise ConfigError(f"cannot read config {path}: {error.strerror or error}") from error
+        text = raw.decode("utf-8-sig")
         try:
             data = tomllib.loads(text)
         except tomllib.TOMLDecodeError as error:

@@ -199,4 +199,32 @@ def test_random_scale_fields_are_within_two_ulps_of_gsplat():
     theirs_scales = np.frombuffer(theirs_records[:, 12:24].copy().tobytes(), dtype="<f4")
     ulps = np.abs(ours_scales.view(np.uint32).astype(np.int64) - theirs_scales.view(np.uint32).astype(np.int64))
     assert ulps.max() <= 2
-    assert np.any(ulps > 0)
+    # Guard against a vacuous comparison: these have to be real, varied scale
+    # values rather than a buffer of zeros that any tolerance would accept.
+    # Deliberately not `np.any(ulps > 0)`, which would turn the two
+    # implementations agreeing exactly into a test failure.
+    assert ours_scales.size == theirs_scales.size > 0
+    assert np.ptp(ours_scales) > 0
+
+
+def test_an_empty_cloud_is_refused_by_every_ordering():
+    """A prune that removes every Gaussian is a real milestone 4 ablation.
+
+    Left unguarded the three orderings disagree: "none" and "size_opacity"
+    write a zero-byte artifact while "morton" raises NumPy's raw zero-size
+    reduction ValueError from means.min(axis=0), which is not a SplatpipeError
+    and so escapes the CLI's error contract.
+    """
+    empty = GaussianCloud(
+        means=np.zeros((0, 3), dtype=np.float32),
+        scales=np.zeros((0, 3), dtype=np.float32),
+        quats=np.zeros((0, 4), dtype=np.float32),
+        opacities=np.zeros(0, dtype=np.float32),
+        sh0=np.zeros((0, 3), dtype=np.float32),
+        shN=np.zeros((0, 15, 3), dtype=np.float32),
+    )
+    empty.validate()  # the shapes are consistent; emptiness is the only problem
+
+    for order in ("morton", "size_opacity", "none"):
+        with pytest.raises(ArtifactError, match="cloud is empty"):
+            encode_splat(empty, order=order)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from splatpipe.config import ORDERS
 from splatpipe.errors import ArtifactError, ConfigError
 from splatpipe.gaussians import SH_C0, GaussianCloud
 
@@ -53,6 +54,14 @@ def size_opacity_order(scales: np.ndarray, opacities: np.ndarray) -> np.ndarray:
 def _validate_splat_inputs(cloud: GaussianCloud) -> None:
     cloud.validate()
 
+    # An empty cloud is caught here rather than at each ordering, so that all
+    # three orders agree. Left to themselves, "none" and "size_opacity" write a
+    # zero-byte artifact while "morton" raises NumPy's raw zero-size reduction
+    # ValueError from min(axis=0). A prune that removes every Gaussian is a real
+    # milestone 4 ablation, and it should say so rather than emit an empty file.
+    if len(cloud) == 0:
+        raise ArtifactError("cloud is empty, there is nothing to encode")
+
     for name in _CLOUD_ARRAY_NAMES:
         if not np.isfinite(getattr(cloud, name)).all():
             raise ArtifactError(f"{name} contains non-finite values")
@@ -74,12 +83,15 @@ def encode_splat(cloud: GaussianCloud, order: str = "morton") -> bytes:
     """Pack a GaussianCloud into little-endian 32-byte .splat records."""
     _validate_splat_inputs(cloud)
 
+    # ORDERS is the single vocabulary, shared with ExportConfig, so adding a
+    # fourth ordering cannot leave the validator and the encoder disagreeing.
+    if order not in ORDERS:
+        raise ConfigError(f"unknown order {order!r}, expected one of {', '.join(ORDERS)}")
+
     if order == "morton":
         cloud = cloud.take(morton_order(cloud.means))
     elif order == "size_opacity":
         cloud = cloud.take(size_opacity_order(cloud.scales, cloud.opacities))
-    elif order != "none":
-        raise ConfigError(f"unknown order {order!r}, expected morton, size_opacity or none")
 
     n = len(cloud)
     positions = np.ascontiguousarray(cloud.means, dtype="<f4")
