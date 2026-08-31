@@ -9,7 +9,7 @@ import os, sys, time, zipfile, urllib.request
 from pathlib import Path
 
 URL = "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/input/tandt_db.zip"
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 ZIP = ROOT / "data" / "tandt_db.zip"
 OUT = ROOT / "data"
 ZIP.parent.mkdir(parents=True, exist_ok=True)

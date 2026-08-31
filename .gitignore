@@ -6,6 +6,7 @@ _webviewer/
 # Data and outputs (~15 GB, all regenerable)
 data/
 results/
+out/
 
 # Raw build and run logs
 _*.log

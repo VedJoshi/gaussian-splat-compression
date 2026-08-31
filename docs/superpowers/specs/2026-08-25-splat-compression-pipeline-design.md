@@ -193,7 +193,7 @@ real artifact.
 
 | # | Work | Ends with |
 |---|---|---|
-| 1 | Turn the spike into a scripted pipeline | `pipeline run <scene>` reproduces truck end to end |
+| 1 | Turn the spike into a scripted pipeline | Done. `splatpipe run` reproduces truck: PSNR 24.395, 225 MiB ply |
 | 2 | Build `bench/`, measure baselines | First RD points: raw `.ply`, `.splat`, `PngCompression` |
 | 3 | Spherical harmonic quantisation | First real win on the curve |
 | 4 | Contribution-based pruning | Second win; enough evidence to design the format |

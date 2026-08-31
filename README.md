@@ -10,24 +10,24 @@ removed or quantized before the visual loss becomes unacceptable?
 
 ## Project status
 
-This project is in active development and has no stable release yet. Milestone
-1 is building the reproducible `splatpipe` training and export pipeline. Seven
-of its eleven implementation tasks have passed review on the
+Milestone 1 is complete on the
 [`milestone-1-scripted-pipeline`](https://github.com/VedJoshi/gaussian-splat-compression/tree/milestone-1-scripted-pipeline)
-branch.
+branch. One command now trains a COLMAP scene and packages it, and it
+reproduces the feasibility baseline below.
 
-Available on that branch:
+All eleven implementation tasks have passed review. The branch provides:
 
 - validated run configuration and deterministic parameter digests
 - Windows CUDA and compiler preflight checks
 - idempotent patches for the two required upstream Windows fixes
 - COLMAP scene validation and deterministic output paths
-- validated 3DGS `.ply` input and output
+- validated 3DGS `.ply` reading and writing
 - numpy-only `.splat` encoding with spatial and visual ordering
+- a run manifest recording the resolved config and its digest, library
+  versions, the Git commit, timings, held-out metrics, and artifact checksums
 
-The run manifest, synthetic scene fixture, training CLI, and final end-to-end
-reproduction are still in progress. The repository should therefore be treated
-as pre-release research code.
+Compression itself begins at milestone 3. Until then the repository should be
+treated as pre-release research code.
 
 ## Measured baseline
 
@@ -49,6 +49,74 @@ MCMC strategy for 7,000 steps on an RTX 4050 Laptop GPU with 6 GB VRAM.
 These measurements establish that the hardware can train the target scenes and
 that artifact size is large enough to make compression meaningful. Phone
 rendering and gsplat's `PngCompression` baseline have not yet been measured.
+
+The scripted pipeline reproduces that baseline. The same scene run through
+`splatpipe` measures PSNR 24.395 dB, SSIM 0.8580 and LPIPS 0.1376 against the
+spike's 24.406, 0.8580 and 0.1372, and writes a `.ply` of exactly 236,001,478
+bytes. The metrics drift in the third decimal because CUDA reductions are not
+bit-reproducible even at gsplat's fixed seed of 42. The artifact sizes are
+exact, because they depend only on the Gaussian count and the field list.
+
+## Running the pipeline
+
+```bat
+scripts\env.bat
+.venv\Scripts\python.exe scripts\setup_env.py
+.venv\Scripts\python.exe scripts\get_data.py
+.venv\Scripts\python.exe -m splatpipe.cli run data\tandt\truck --config configs\truck.toml --out out
+```
+
+`setup_env.py` pins the gsplat checkout and applies both Windows patches, and
+`get_data.py` downloads Tanks and Temples and builds the downscaled image
+folders. Both are one-time provisioning. `env.bat` loads the MSVC environment
+and is needed in every new shell, because the pipeline checks for a working
+compiler before spending GPU minutes. The run itself takes roughly 8 minutes on
+an RTX 4050 and writes:
+
+    out/truck/artifacts/scene.ply    the trained 3DGS model
+    out/truck/artifacts/scene.splat  the 32-byte-per-Gaussian viewer format
+    out/truck/config.toml            the config as given, copied verbatim
+    out/truck/manifest.json          what produced them
+    out/truck/train/                 gsplat's own output, left in its layout
+    out/truck/logs/train.log         the trainer's full output
+
+Add `--skip-train` to re-export from an existing `train/` directory without
+training again, which is the loop to use when changing export settings.
+
+The supported path is the command above. Underneath it, the pipeline runs
+gsplat's trainer directly, which is worth knowing when debugging a training
+failure:
+
+```bat
+cd _gsplat_repo\examples
+..\..\.venv\Scripts\python.exe simple_trainer.py mcmc --data-dir ..\..\data\tandt\truck ^
+  --result-dir ..\..\out\truck\train --data-factor 1 --max-steps 7000 --test-every 8 ^
+  --eval-steps 7000 --save-ply --disable-viewer --strategy.cap-max 1000000
+```
+
+Tests run in two tiers. The fast tier needs no GPU and no MSVC shell, which is
+what makes the project resumable after a gap:
+
+```bat
+.venv\Scripts\python.exe -m pytest -q
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
+```
+
+The fast tier is 95 tests and deselects the 3 GPU-marked ones. The complete
+tier is 98 and trains the real gsplat trainer twice on a synthetic 24-image
+scene, taking about a minute and a half.
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| `src/splatpipe/` | The pipeline package: config, scene validation, paths, training, export, manifest |
+| `configs/truck.toml` | The baseline run above, expressed as configuration |
+| `scripts/env.bat` | Loads the MSVC 14.29 environment |
+| `scripts/setup_env.py` | Pins the gsplat checkout and owns both upstream patches |
+| `scripts/get_data.py` | Downloads Tanks and Temples and builds `images_2` and `images_4` |
+| `scripts/vram_sampler.py` | Samples whole-board GPU memory through `nvidia-smi` |
+| `tests/` | Two tiers: a fast CPU suite and GPU-marked end-to-end runs |
 
 ## Compression target
 
@@ -78,7 +146,7 @@ rendering performance.
 
 | Milestone | Outcome | State |
 |---|---|---|
-| 1. Scripted pipeline | One command reproduces the training and export baseline | In progress |
+| 1. Scripted pipeline | One command reproduces the training and export baseline | Done |
 | 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | Planned |
 | 3. SH quantization | First measured compression improvement | Planned |
 | 4. Contribution pruning | Quality-aware Gaussian reduction | Planned |
@@ -87,31 +155,14 @@ rendering performance.
 | 7. Three-scene site | Public comparison across real scenes | Planned |
 | 8. Evaluation writeup | Curves, ablations, and failure analysis | Planned |
 
-## Development
+## Environment
 
-The currently validated environment is Windows 11, Python 3.11, PyTorch
-2.7.1 with CUDA 12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is
-sensitive to version changes, so the pinned environment should be reproduced
-before dependencies are upgraded.
-
-From a provisioned checkout of the milestone branch:
-
-```bat
-scripts\env.bat
-.venv\Scripts\python.exe scripts\setup_env.py --check
-.venv\Scripts\python.exe -m pytest -q
-```
-
-The fast suite currently contains 76 passing tests and deselects one GPU test.
-To run the complete suite:
-
-```bat
-cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
-```
-
-The complete suite currently contains 77 passing tests. `setup_env.py` also
-checks the pinned gsplat checkout and reports whether both Windows patches are
-applied.
+The validated environment is Windows 11, Python 3.11, PyTorch 2.7.1 with CUDA
+12.8, gsplat 1.5.3, and MSVC 14.29. The CUDA extension build is sensitive to
+version changes, so the pinned environment should be reproduced before
+dependencies are upgraded. `requirements.lock.txt` records the exact resolved
+versions; it is a record rather than a one-shot installer, because torch and
+gsplat need the CUDA index and a compiler shell.
 
 ## Documentation
 
