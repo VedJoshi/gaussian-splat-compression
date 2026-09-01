@@ -102,6 +102,7 @@ responsibility boundary the spec asks for is unchanged.
 | `bench/render.py` | Rendering a `GaussianCloud` through `gsplat.rasterization` |
 | `bench/metrics.py` | PSNR, SSIM and LPIPS, matching gsplat's own configuration |
 | `bench/curve.py` | Assembling `curve.json` and plotting `curve.png` |
+| `bench/run.py` | One measurement pass over a list of codecs, and the anchor rule |
 
 ### The codec protocol
 
