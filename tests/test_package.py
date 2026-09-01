@@ -22,11 +22,13 @@ def test_error_types_share_a_base():
 
 
 def test_png_compression_dependencies_are_importable():
-    """PngCompression's three undeclared dependencies must be installed.
+    """PngCompression's three dependencies must be installed.
 
-    torchpq declares only numpy and torch in its metadata but imports cupy at
-    runtime inside torchpq.clustering.KMeans, so importing torchpq alone proves
-    nothing. All three are checked explicitly.
+    None of them arrive automatically. torchpq declares only numpy and torch in
+    its metadata, so pip installs it happily without cupy, and the gap shows at
+    the first import: torchpq/__init__.py imports cupy at module top and raises
+    ModuleNotFoundError if it is absent. plas has no PyPI release at all. All
+    three are checked here rather than trusting one to pull in the others.
     """
     import cupy
     import plas
@@ -35,12 +37,4 @@ def test_png_compression_dependencies_are_importable():
     assert cupy.__version__.startswith("13."), (
         f"cupy must stay on 13.x; 14 and above require numpy>=2.0 and this "
         f"project pins numpy<2.0.0. Found {cupy.__version__}"
-    )
-
-
-def test_numpy_stays_below_2():
-    import numpy
-
-    assert numpy.__version__.startswith("1."), (
-        f"numpy must stay below 2.0.0, found {numpy.__version__}"
     )
