@@ -311,7 +311,8 @@ def test_decode_round_trips_quaternions_within_quantisation_error():
     """Nothing else in this file reads back.quats numerically.
 
     What this pins is the byte slice: reading the colour bytes or a window
-    shifted by one moves every component by more than a whole unit. It pins the
+    shifted by one leaves all but one of the 256 components outside the
+    tolerance, with a worst component error above 1.4. It pins the
     128 offset in one direction only. Measured on this fixture, an offset of 129
     gives 0.0202 and fails, while an offset of 127 gives 0.0078 and passes,
     because encode_splat truncates rather than rounds when it casts to uint8, so
