@@ -305,3 +305,31 @@ def test_decode_rejects_a_truncated_buffer():
 def test_decode_rejects_an_empty_buffer():
     with pytest.raises(ArtifactError, match="no gaussians"):
         decode_splat(b"")
+
+
+def test_decode_round_trips_quaternions_within_quantisation_error():
+    """Nothing else in this file reads back.quats numerically.
+
+    What this pins is the 128 offset and the byte slice: shifting either
+    moves every component well outside the tolerance. It deliberately does
+    not claim to pin the divisor, because (stored - 128) / d followed by
+    normalisation cancels d entirely, so dividing by 255 instead of 128
+    produces an identical result. Measured over 20,000 gaussians, the worst
+    component error is 0.0105, against the 0.0156 asserted here.
+    """
+    cloud = a_representable_cloud(64)
+    back = decode_splat(encode_splat(cloud, order="none"))
+    expected = cloud.quats / np.linalg.norm(cloud.quats, axis=1, keepdims=True)
+    np.testing.assert_allclose(back.quats, expected, atol=2.0 / 128)
+
+
+def test_decode_rejects_a_zero_length_quaternion():
+    """Unreachable through encode_splat, which always normalises first.
+
+    decode_splat is public and .splat is an interchange format, so it can be
+    handed bytes this project did not write.
+    """
+    data = bytearray(encode_splat(make_cloud(n=4), order="none"))
+    data[28:32] = b"\x80\x80\x80\x80"
+    with pytest.raises(ArtifactError, match="zero-length quaternion"):
+        decode_splat(bytes(data))

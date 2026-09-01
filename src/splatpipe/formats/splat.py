@@ -114,8 +114,13 @@ def encode_splat(cloud: GaussianCloud, order: str = "morton") -> bytes:
     return buffer.tobytes()
 
 
+# The midpoint of the quantisation bucket an 8-bit alpha came from. Inverting
+# logit at the bucket edge diverges; the midpoint is the best estimate the
+# stored byte supports. Bounds the recovered logit at about plus or minus 6.23.
 _ALPHA_MIN = 0.5 / 255
 _ALPHA_MAX = 254.5 / 255
+# exp() of a sufficiently negative log scale underflows to zero, and log(0) is
+# negative infinity. The smallest positive normal float32 bounds it at -87.34.
 _FLOAT32_TINY = float(np.finfo(np.float32).tiny)
 
 
