@@ -310,12 +310,17 @@ def test_decode_rejects_an_empty_buffer():
 def test_decode_round_trips_quaternions_within_quantisation_error():
     """Nothing else in this file reads back.quats numerically.
 
-    What this pins is the 128 offset and the byte slice: shifting either
-    moves every component well outside the tolerance. It deliberately does
-    not claim to pin the divisor, because (stored - 128) / d followed by
-    normalisation cancels d entirely, so dividing by 255 instead of 128
-    produces an identical result. Measured over 20,000 gaussians, the worst
-    component error is 0.0105, against the 0.0156 asserted here.
+    What this pins is the byte slice: reading the colour bytes or a window
+    shifted by one moves every component by more than a whole unit. It pins the
+    128 offset in one direction only. Measured on this fixture, an offset of 129
+    gives 0.0202 and fails, while an offset of 127 gives 0.0078 and passes,
+    because encode_splat truncates rather than rounds when it casts to uint8, so
+    127 and 128 land in the same quantisation bucket. Tightening the tolerance
+    cannot separate them. It also does not pin the divisor, because
+    (stored - offset) / d followed by normalisation cancels d entirely.
+
+    The correct decoder's worst component error is 0.0105, measured over 20,000
+    gaussians, against the 0.0156 asserted here.
     """
     cloud = a_representable_cloud(64)
     back = decode_splat(encode_splat(cloud, order="none"))
