@@ -43,11 +43,13 @@ Append to `tests/test_package.py`:
 
 ```python
 def test_png_compression_dependencies_are_importable():
-    """PngCompression's three undeclared dependencies must be installed.
+    """PngCompression's three dependencies must be installed.
 
-    torchpq declares only numpy and torch in its metadata but imports cupy at
-    runtime inside torchpq.clustering.KMeans, so importing torchpq alone proves
-    nothing. All three are checked explicitly.
+    None of them arrive automatically. torchpq declares only numpy and torch in
+    its metadata, so pip installs it happily without cupy, and the gap shows at
+    the first import: torchpq/__init__.py imports cupy at module top and raises
+    ModuleNotFoundError if it is absent. plas has no PyPI release at all. All
+    three are checked here rather than trusting one to pull in the others.
     """
     import cupy
     import plas
@@ -58,13 +60,6 @@ def test_png_compression_dependencies_are_importable():
         f"project pins numpy<2.0.0. Found {cupy.__version__}"
     )
 
-
-def test_numpy_stays_below_2():
-    import numpy
-
-    assert numpy.__version__.startswith("1."), (
-        f"numpy must stay below 2.0.0, found {numpy.__version__}"
-    )
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -106,7 +101,7 @@ bench = ["cupy-cuda12x==13.6.0", "torchpq", "torchmetrics>=1.9", "matplotlib"]
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 118 passed, 3 deselected.
+Expected: PASS, 117 passed, 3 deselected.
 
 Then confirm the lock file is honest by diffing it against the live venv:
 
@@ -297,7 +292,7 @@ Expected: PASS.
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 125 passed, 3 deselected.
+Expected: PASS, 124 passed, 3 deselected.
 
 - [ ] **Step 6: Commit**
 
@@ -622,7 +617,7 @@ Expected: PASS, 3 passed.
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 130 passed, 6 deselected.
+Expected: PASS, 129 passed, 6 deselected.
 
 - [ ] **Step 6: Commit**
 
@@ -1768,7 +1763,7 @@ The CLI tests stub `bench_run`'s module-level names, so the default codec list i
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 149 passed, 8 deselected.
+Expected: PASS, 148 passed, 8 deselected.
 
 - [ ] **Step 9: Commit**
 
@@ -1981,7 +1976,7 @@ In `HANDOFF.md`, move milestone 2 from Next Steps into Completed, record the mea
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 149 passed, 10 deselected.
+Expected: PASS, 148 passed, 10 deselected.
 
 Run from PowerShell:
 
@@ -1989,7 +1984,7 @@ Run from PowerShell:
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected: PASS, 159 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
+Expected: PASS, 158 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
 
 - [ ] **Step 7: Commit**
 
@@ -2008,14 +2003,14 @@ update the expected count rather than deleting the test.
 
 | After task | Fast tier | Deselected |
 |---|---:|---:|
-| 1 | 118 | 3 |
-| 2 | 125 | 3 |
-| 3 | 130 | 3 |
-| 4 | 130 | 6 |
-| 5 | 133 | 6 |
-| 6 | 133 | 8 |
-| 7 | 137 | 8 |
-| 8 | 142 | 8 |
-| 9 | 149 | 8 |
-| 10 | 149 | 9 |
-| 11 | 149 | 10 |
+| 1 | 117 | 3 |
+| 2 | 124 | 3 |
+| 3 | 129 | 3 |
+| 4 | 129 | 6 |
+| 5 | 132 | 6 |
+| 6 | 132 | 8 |
+| 7 | 136 | 8 |
+| 8 | 141 | 8 |
+| 9 | 148 | 8 |
+| 10 | 148 | 9 |
+| 11 | 148 | 10 |

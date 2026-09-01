@@ -70,9 +70,11 @@ rediscover:
   that pin. Version 13.6.0 accepts `numpy<2.6,>=1.22`, ships a prebuilt
   `win_amd64` wheel, and needs no compiler.
 - **`torchpq` does not declare `cupy`.** Its metadata lists only numpy and
-  torch, and it imports `cupy` at runtime inside
-  `torchpq.clustering.KMeans`. Installing `torchpq` alone therefore appears to
-  succeed and fails later, at the point `PngCompression` compresses `shN`.
+  torch, so `pip install torchpq` succeeds without cupy present. The gap shows
+  at the first import rather than later: `torchpq/__init__.py` imports cupy at
+  module top and raises `ModuleNotFoundError` if it is absent. The consequence
+  is that cupy has to be installed explicitly and at a compatible version;
+  nothing pulls it in.
 
 `plas` builds a pure-Python wheel from source and pulls `click`, `kornia`,
 `kornia-rs`, `lapjv`, `pandas` and `tzdata`. None of these move numpy.
