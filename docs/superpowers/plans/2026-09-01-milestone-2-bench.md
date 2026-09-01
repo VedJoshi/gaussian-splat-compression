@@ -141,22 +141,43 @@ Append to `tests/test_splat_format.py`:
 from splatpipe.formats.splat import decode_splat
 
 
+def a_representable_cloud(n: int = 64) -> GaussianCloud:
+    """A cloud the .splat format can actually carry.
+
+    The module's existing make_cloud draws sh0 from a standard normal, but the
+    format only represents sh0 in about [-1.77, 1.77]: rgb is sh0 * SH_C0 + 0.5
+    and the encoder clips outside [0, 1]. Asserting round-trip fidelity on
+    values the format cannot represent would test nothing, so the tolerance
+    assertions below use this instead. Saturation itself is already covered by
+    the encoder's own tests.
+    """
+    rng = np.random.default_rng(0)
+    return GaussianCloud(
+        means=rng.uniform(-10, 10, (n, 3)).astype(np.float32),
+        scales=rng.uniform(-3, -1, (n, 3)).astype(np.float32),
+        quats=rng.standard_normal((n, 4)).astype(np.float32),
+        opacities=rng.uniform(-4, 4, n).astype(np.float32),
+        sh0=rng.uniform(-1.5, 1.5, (n, 3)).astype(np.float32),
+        shN=rng.standard_normal((n, 15, 3)).astype(np.float32),
+    )
+
+
 def test_decode_recovers_positions_exactly():
     """Positions are stored as float32 and must survive the round trip bit for bit."""
-    cloud = a_cloud(16)
+    cloud = make_cloud(n=16)
     back = decode_splat(encode_splat(cloud, order="none"))
     np.testing.assert_array_equal(back.means, cloud.means)
 
 
 def test_decode_discards_higher_order_harmonics():
-    cloud = a_cloud(16)
+    cloud = make_cloud(n=16)
     back = decode_splat(encode_splat(cloud, order="none"))
     assert back.shN.shape == (16, 0, 3)
     assert back.sh_degree == 0
 
 
 def test_decode_round_trips_scales_and_colours_within_quantisation_error():
-    cloud = a_cloud(64)
+    cloud = a_representable_cloud(64)
     back = decode_splat(encode_splat(cloud, order="none"))
     # Scales survive as exp then log through float32, so only rounding is lost.
     np.testing.assert_allclose(back.scales, cloud.scales, atol=1e-5)
@@ -171,7 +192,7 @@ def test_decode_clamps_saturated_opacity_instead_of_returning_infinity():
     high enough logit saturates. The clamp uses the midpoint of the quantisation
     bucket, which is the best estimate available rather than an arbitrary guard.
     """
-    cloud = replace(a_cloud(4), opacities=np.full(4, 40.0, dtype=np.float32))
+    cloud = replace(make_cloud(n=4), opacities=np.full(4, 40.0, dtype=np.float32))
     back = decode_splat(encode_splat(cloud, order="none"))
     assert np.isfinite(back.opacities).all()
     np.testing.assert_allclose(back.opacities, 6.2324480, atol=1e-4)
@@ -179,7 +200,7 @@ def test_decode_clamps_saturated_opacity_instead_of_returning_infinity():
 
 def test_decode_clamps_underflowing_scale_instead_of_returning_negative_infinity():
     """A very negative log scale exponentiates to zero, and log(0) is -inf."""
-    cloud = replace(a_cloud(4), scales=np.full((4, 3), -200.0, dtype=np.float32))
+    cloud = replace(make_cloud(n=4), scales=np.full((4, 3), -200.0, dtype=np.float32))
     back = decode_splat(encode_splat(cloud, order="none"))
     assert np.isfinite(back.scales).all()
     np.testing.assert_allclose(back.scales, -87.33655, atol=1e-3)
@@ -195,7 +216,7 @@ def test_decode_rejects_an_empty_buffer():
         decode_splat(b"")
 ```
 
-Add `from dataclasses import replace` and `from splatpipe.gaussians import SH_C0` to the imports if the file does not already have them, and reuse the existing `a_cloud` helper in that file.
+Add `from dataclasses import replace` and `from splatpipe.gaussians import SH_C0` to the imports if the file does not already have them. The file's existing cloud helper is `make_cloud(n=64, k=15)`, defined at `tests/test_splat_format.py:18`. Use that name; there is no `a_cloud` in this file.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -1359,6 +1380,7 @@ git commit -m "Add the curve, its JSON schema and the rate-distortion plot"
 
 **Files:**
 - Create: `src/splatpipe/bench/run.py`
+- Modify: `src/splatpipe/bench/codecs.py`
 - Modify: `src/splatpipe/cli.py`
 - Modify: `src/splatpipe/paths.py`
 - Test: `tests/test_bench_cpu.py`
@@ -1473,11 +1495,47 @@ def test_cli_reports_a_missing_run_directory(tmp_path, capsys):
 
 
 def test_cli_returns_zero_on_success(tmp_path, monkeypatch):
+    """--codecs keeps this on the fast tier.
+
+    The default list includes png, whose encode needs CUDA, cupy and plas.
+    Selecting the two numpy-only codecs is what lets the command's success path
+    be exercised without a GPU.
+    """
     paths = a_run(tmp_path)
     stub_views(monkeypatch)
-    assert main(["bench", str(paths.root), "--scene", str(tmp_path / "scene")]) == 0
+    assert (
+        main(
+            [
+                "bench",
+                str(paths.root),
+                "--scene",
+                str(tmp_path / "scene"),
+                "--codecs",
+                "ply,splat",
+            ]
+        )
+        == 0
+    )
     assert paths.curve_json.is_file()
     assert paths.curve_png.is_file()
+
+
+def test_cli_rejects_an_unknown_codec_name(tmp_path, capsys):
+    paths = a_run(tmp_path)
+    assert (
+        main(
+            [
+                "bench",
+                str(paths.root),
+                "--scene",
+                str(tmp_path / "scene"),
+                "--codecs",
+                "ply,jpeg",
+            ]
+        )
+        == 1
+    )
+    assert "unknown codec" in capsys.readouterr().err
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1622,7 +1680,42 @@ def _config_digest(paths: RunPaths) -> str:
         return "unknown"
 ```
 
-- [ ] **Step 5: Wire the subcommand into the CLI**
+- [ ] **Step 5: Add the codec registry**
+
+Append to `src/splatpipe/bench/codecs.py`. The registry exists so a codec can be
+selected by name from the command line: running one codec without paying for the
+other two matters from milestone 3 on, when the sweep gets long, and it is what
+lets the CPU tests exercise the command without constructing a CUDA codec.
+
+```python
+CODECS = {
+    "ply": PlyCodec,
+    "splat": SplatCodec,
+    "png": PngCodec,
+}
+
+
+def build_codecs(names: str) -> list:
+    """Build codecs from a comma-separated name list, preserving order.
+
+    Order is significant: the first codec is the anchor whose size is the
+    denominator of every ratio, so it should be a lossless one.
+    """
+    selected = [name.strip() for name in names.split(",") if name.strip()]
+    if not selected:
+        raise ConfigError("no codecs selected")
+    unknown = [name for name in selected if name not in CODECS]
+    if unknown:
+        raise ConfigError(
+            f"unknown codec(s) {', '.join(unknown)}. "
+            f"Known codecs are: {', '.join(sorted(CODECS))}"
+        )
+    return [CODECS[name]() for name in selected]
+```
+
+Add `from splatpipe.errors import ConfigError` to that module's imports.
+
+- [ ] **Step 6: Wire the subcommand into the CLI**
 
 In `src/splatpipe/cli.py`, add the parser beside the existing `run` parser inside `main`:
 
@@ -1632,6 +1725,11 @@ In `src/splatpipe/cli.py`, add the parser beside the existing `run` parser insid
     bench.add_argument("--scene", type=Path, required=True, help="the COLMAP scene it was trained on")
     bench.add_argument("--data-factor", type=int, default=1)
     bench.add_argument("--test-every", type=int, default=8)
+    bench.add_argument(
+        "--codecs",
+        default="ply,splat,png",
+        help="comma-separated codec names in measurement order. The first is the anchor.",
+    )
 ```
 
 Replace the single-command dispatch in `main` with:
@@ -1642,13 +1740,13 @@ Replace the single-command dispatch in `main` with:
         if args.command == "run":
             run_pipeline(args.scene, RunConfig.from_toml(args.config), args.out, args.skip_train)
         else:
-            from splatpipe.bench.codecs import PlyCodec, PngCodec, SplatCodec
+            from splatpipe.bench.codecs import build_codecs
             from splatpipe.bench.run import run_bench
 
             run_bench(
                 args.run_dir,
                 args.scene,
-                [PlyCodec(), SplatCodec(), PngCodec()],
+                build_codecs(args.codecs),
                 data_factor=args.data_factor,
                 test_every=args.test_every,
             )
@@ -1658,24 +1756,24 @@ Replace the single-command dispatch in `main` with:
     return 0
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_bench_cpu.py -q`
 
-Expected: PASS, 6 passed.
+Expected: PASS, 7 passed.
 
 The CLI tests stub `bench_run`'s module-level names, so the default codec list including `PngCodec` is never constructed on the CPU path. If a test fails importing cupy, the stub is being applied to the wrong module object; patch `splatpipe.bench.run`, not `splatpipe.cli`.
 
-- [ ] **Step 7: Run the whole fast tier**
+- [ ] **Step 8: Run the whole fast tier**
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 148 passed, 8 deselected.
+Expected: PASS, 149 passed, 8 deselected.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/splatpipe/bench/run.py src/splatpipe/cli.py src/splatpipe/paths.py tests/test_bench_cpu.py
+git add src/splatpipe/bench/run.py src/splatpipe/bench/codecs.py src/splatpipe/cli.py src/splatpipe/paths.py tests/test_bench_cpu.py
 git commit -m "Add the splatpipe bench subcommand and its CPU coverage"
 ```
 
@@ -1717,7 +1815,9 @@ pytestmark = pytest.mark.gpu
 def test_bench_measures_every_codec_on_a_trained_scene(tmp_path):
     scene = make_tiny_scene(tmp_path / "scene", n_images=24, n_points=512)
     config = tmp_path / "tiny.toml"
-    # cap_max is a square so PngCompression crops nothing on this run.
+    # cap_max is an MCMC cap rather than an exact count, so the final Gaussian
+    # count is not guaranteed square and PngCompression may crop a few. The
+    # assertions below do not depend on it.
     config.write_text(
         'name = "tiny"\n\n[train]\nmax_steps = 200\ncap_max = 4096\ntest_every = 8\n',
         encoding="utf-8",
@@ -1881,7 +1981,7 @@ In `HANDOFF.md`, move milestone 2 from Next Steps into Completed, record the mea
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 148 passed, 10 deselected.
+Expected: PASS, 149 passed, 10 deselected.
 
 Run from PowerShell:
 
@@ -1889,7 +1989,7 @@ Run from PowerShell:
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected: PASS, 158 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
+Expected: PASS, 159 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
 
 - [ ] **Step 7: Commit**
 
@@ -1916,6 +2016,6 @@ update the expected count rather than deleting the test.
 | 6 | 133 | 8 |
 | 7 | 137 | 8 |
 | 8 | 142 | 8 |
-| 9 | 148 | 8 |
-| 10 | 148 | 9 |
-| 11 | 148 | 10 |
+| 9 | 149 | 8 |
+| 10 | 149 | 9 |
+| 11 | 149 | 10 |
