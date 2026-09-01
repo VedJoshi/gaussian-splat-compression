@@ -1,4 +1,4 @@
-# Handoff: Milestone 1 scripted splat pipeline: 2026-08-31 (complete, reviewed, merge pending)
+# Handoff: Milestone 1 scripted splat pipeline: 2026-09-01 (complete, reviewed, merged)
 
 ## Goal
 
@@ -8,8 +8,8 @@ must train a COLMAP scene and emit a `.ply`, a `.splat`, and a manifest that
 records exactly what produced them, providing the foundation for later
 rate-distortion compression research.
 
-**This goal is met, and the branch has been reviewed as a whole.** The only
-remaining work is the merge decision, which is Ved's.
+**This goal is met, the branch has been reviewed as a whole, and it is merged
+into `master`.** Milestone 1 is closed. The next work is planning milestone 2.
 
 ## Completed
 
@@ -69,6 +69,18 @@ remaining work is the merge decision, which is Ved's.
   `119 passed` complete tier, in both the working venv and a freshly
   provisioned one. The pycolmap `np.uint64(-1)` deprecation warning is gone,
   because `resolve_target` no longer imports gsplat or pycolmap.
+- Re-verified immediately before the merge on 2026-09-01: fast tier
+  `116 passed, 3 deselected`, complete tier `119 passed in 141.09s`, the two
+  GPU end-to-end tests taking 72.9s and 62.5s. `master` fast-forwarded to the
+  branch, so the merged tree hash is identical to the tested one
+  (`b0076e68f44c235c1133476f0ec3c79498c54b59`) and the result carries over
+  without re-running.
+- **A `cmd /c` complete-tier run launched from Git Bash is a false green.** The
+  MSYS layer rewrites `/c` into a filesystem path, so `cmd` opens an
+  interactive shell, prints its banner and exits 0 having run no tests. It is
+  indistinguishable from success by exit code alone. This is the concrete cost
+  of the "run `cmd /c` lines through PowerShell" caveat below; check that
+  pytest output is actually present before believing a green complete tier.
 - `da1c671` replaced the default branch's spike-style README with a project
   overview. `458686e` merged that forward. `35daec6` records the remote and
   merge policy.
@@ -126,9 +138,8 @@ remaining work is the merge decision, which is Ved's.
   this repo root. A separate worktree lacks the 15 GB working environment.
 - **Routine pushes are authorized**: Ved authorized remote pushes and
   default-branch documentation updates on 2026-08-28. **The merge into `master`
-  is a separate decision and has not been made.** The branch's stated success
-  criterion is now met, so the merge is unblocked on the merits but still
-  Ved's call.
+  was made on 2026-09-01**, by Ved's explicit instruction, after both tiers were
+  re-verified on the exact tree being merged.
 - **The default branch is named `master`**: there is no `main` branch.
 - **The venv is mandatory**: use `.venv\Scripts\python.exe`; bare `python` and
   `py` resolve to Python 3.13, while the project requires Python 3.11.
@@ -194,10 +205,9 @@ remaining work is the merge decision, which is Ved's.
 
 ## Next Steps
 
-1. **(P0) Decide the merge into `master`.** This is the only thing standing
-   between the branch and done. The success criterion is met, the whole-branch
-   review is closed, and the provisioning sequence is verified. Use
-   `superpowers:finishing-a-development-branch`.
+1. **(P0) Plan milestone 2.** Milestone 1 is merged and closed, so this is the
+   next piece of work. Read the spec's milestone list, then use
+   `superpowers:brainstorming` before any plan is written.
 2. **(P2) Consider the four accepted Minors closed** unless something changes.
    They are listed above with the reasoning for each, so they do not need
    rediscovering.
@@ -210,10 +220,14 @@ remaining work is the merge decision, which is Ved's.
 
 ## Context
 
-- **Branch(es)**: active `milestone-1-scripted-pipeline`; default `master`. The
-  milestone branch forked from `master` at `a70668b`, contains the default
-  README merge, and remains unmerged. There is no pull request. GitHub SSH and
-  `gh` access work as user `VedJoshi`.
+- **Branch(es)**: default `master`, now at `9f7f3a1` and carrying all of
+  milestone 1. The milestone branch forked from `master` at `a70668b`, contains
+  the default README merge, and was merged back on 2026-09-01 as a
+  fast-forward, so `master`'s history is linear and every task commit is
+  preserved. There was never a pull request. `milestone-1-scripted-pipeline`
+  still exists locally and on the remote, pointing at the same commit as
+  `master`; it is kept as the record and is safe to delete whenever Ved wants.
+  GitHub SSH and `gh` access work as user `VedJoshi`.
 - **Authority**: read `HANDOFF.md`, then
   `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`, then
   `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`, then the

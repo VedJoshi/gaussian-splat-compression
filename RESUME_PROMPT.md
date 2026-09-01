@@ -11,7 +11,7 @@ You are continuing work on a computer vision portfolio project. Read this whole 
 
 A 3D Gaussian Splatting pipeline: capture a scene, train a splat model, compress it, and deploy it to a browser. The portfolio claim is "I built and deployed this, and the hard part was the compression, which I implemented from the literature and benchmarked." Not "I trained a model."
 
-The work is split into eight milestones. You are executing **milestone 1**, which turns an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`.
+The work is split into eight milestones. **Milestone 1 is complete and merged into `master`.** It turned an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`. The next work is planning milestone 2; nothing from milestone 1 is in flight.
 
 Read these three files first, in this order. They are the authority and they disagree with nothing:
 
@@ -23,13 +23,13 @@ Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeli
 
 ## Where things stand
 
-Use branch `milestone-1-scripted-pipeline`. `origin/master` is at `da1c671`. There is no `main` branch and no pull request.
+Work on `master`, which is at `9f7f3a1` and carries all of milestone 1. There is no `main` branch and there never was a pull request. `milestone-1-scripted-pipeline` still exists and points at the same commit; it is kept as the record, not as a place to add work.
 
-**All 11 tasks are implemented and reviewed, and the branch has since been reviewed as a whole. Milestone 1 is done.** No task is in flight. The only thing left is the merge decision.
+**All 11 tasks are implemented and reviewed, the branch was reviewed again as a whole, and it was merged into `master` on 2026-09-01 as a fast-forward. Milestone 1 is done and closed.** No task is in flight. Start a fresh branch for milestone 2 rather than continuing on the milestone 1 branch.
 
 **The pipeline reproduces the spike on the real truck scene.** That was the milestone's falsification criterion. Measured PSNR 24.394817 against the spike's 24.406155, a delta of 0.0113 dB against a 0.1 tolerance fixed before the run; SSIM 0.8579996 against 0.8580129; LPIPS 0.1375573 against 0.1372071; exactly 1,000,000 Gaussians; a `.ply` of exactly 236,001,478 bytes, matching the spike to the byte; and a `.splat` of exactly 32,000,000. Training took 8.03 minutes. No expected value was adjusted after the fact, and an independent reviewer re-derived every number from disk.
 
-GitHub access works through both SSH and `gh` as `VedJoshi`. Ved authorized routine pushes and default-branch documentation updates on 2026-08-28. The end-to-end criterion now passes, so the merge into `master` is unblocked on the merits, but it is still Ved's decision and has not been made.
+GitHub access works through both SSH and `gh` as `VedJoshi`. Ved authorized routine pushes and default-branch documentation updates on 2026-08-28, and instructed the merge into `master` on 2026-09-01 after the evaluation passed. Both tiers were re-run on the exact tree being merged before it was taken.
 
 Task 7 added the numpy-only 32-byte `.splat` writer with Morton, size-opacity and input ordering. Exact records are checked against gsplat with representable scales; randomized scale fields stay within 2 ULP while every other byte remains exact. Review fixed warning-producing numeric edges and strengthened the ordering regression by mutation. The real truck cloud encodes to exactly 32,000,000 bytes.
 
@@ -71,7 +71,7 @@ Claude-Session: <your own session URL>
 
 Use your own session URL, not one copied from here. Earlier commits carry the session that produced them, which is what makes the trailer worth having.
 
-Push completed work after its review and documentation are finished. All eleven tasks and the end-to-end reproduction have now passed, so the merge is no longer blocked by the criterion; run the whole-branch review first and let Ved make the call.
+Push completed work after its review and documentation are finished. Milestone 1 passed its whole-branch review and is merged, so that gate is closed; apply the same discipline to milestone 2 and let Ved make each merge call.
 
 ## Environment: the parts that will waste your time if you do not know them
 
@@ -112,10 +112,12 @@ cd "C:\Users\vedti\NUS_CS(noOnedrive)\gaussian-splat-compression"
 git status --short
 git log --oneline -5
 .venv\Scripts\python.exe -m pytest -q
-cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe scripts\setup_env.py --check"
+.venv\Scripts\python.exe scripts\setup_env.py --check
 ```
 
-Expected: clean tree and synchronized tracking ref; `c68e0c3` and the Task 11 documentation commit present in recent history; `master` at `da1c671`; `95 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected: clean tree and synchronized tracking ref; `master` at `9f7f3a1` or later, with `9f7f3a1` present in recent history; `116 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+
+`--check` needs no compiler shell and no GPU: `resolve_target` locates the installed files rather than importing them, which is what lets it run on a machine where gsplat cannot yet compile. Only the complete test tier needs `scripts\env.bat`, and that line must be run from PowerShell or `cmd`, never from Git Bash, which rewrites `/c` into a path and silently runs nothing while exiting 0.
 
 The truck run itself lives at `out/truck/` and is git-ignored, so a fresh clone will not have it. Reproducing it costs about 8 minutes of GPU time.
 
@@ -136,8 +138,8 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## What is left
 
-1. **Decide the merge into `master`.** Use `superpowers:finishing-a-development-branch`. This is the only thing left, and it is Ved's call.
-2. Everything else is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; and the provisioning sequence has been verified against an empty directory rather than reconstructed.
+1. **Plan milestone 2.** Milestone 1 is merged and closed, so this is the next piece of work. Use `superpowers:brainstorming` before writing any plan, and start it on a fresh branch off `master`.
+2. Everything from milestone 1 is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; the provisioning sequence has been verified against an empty directory rather than reconstructed; and the merge into `master` has been taken.
 
 The two packaging issues that were deferred to Task 11 are closed. `requirements.lock.txt` no longer records the package through a private `git+ssh` URL; note that a plain `pip freeze` will put it back, because pip resolves an editable install inside a Git checkout to that checkout's remote, so regenerate with `pip freeze --exclude-editable` and leave the hand-maintained `-e .` line alone. `plyfile` deliberately stays `>=1.0` in `pyproject.toml` and `==1.1.3` in the lock: the version cannot affect the byte target, since gsplat writes the `.ply` through its own `splat2ply_bytes` and never imports plyfile.
 
@@ -151,4 +153,4 @@ Make routine calls yourself and record them. If you find something in the plan t
 
 Do not treat a brief as current merely because it is detailed. Task 11's brief edited README sections that a later commit had already deleted. Check the file before transcribing an edit into it.
 
-Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The remaining open owner decisions are how phone captures get COLMAP poses, and whether to merge this branch into `master`.
+Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses. The milestone 1 merge was one of these and has been taken.
