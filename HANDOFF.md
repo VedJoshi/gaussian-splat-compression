@@ -1,4 +1,36 @@
-# Handoff: Milestone 2 bench harness: 2026-09-01 (in progress, 2 of 11 tasks)
+# Handoff: Milestone 2 bench harness: 2026-09-02 (in progress, 3 of 11 tasks)
+
+## What this project is, in plain terms
+
+Read this section if you are returning after a gap and the jargon has faded.
+
+You photograph a real object from many angles. Software works out where each
+photo was taken from, then fills the space with millions of tiny coloured
+translucent blobs and nudges each blob's position, size, colour and
+transparency until the cloud, viewed from where each photo was taken, matches
+that photo. You can then view the object from angles you never photographed.
+That is Gaussian splatting, and each blob is a Gaussian.
+
+The blob cloud is enormous. The truck scene is 1,000,000 blobs and 236 MB.
+Nobody downloads 236 MB to look at a truck in a browser. The whole project is
+one question: how small can that get before it starts looking bad. Every
+compression method yields a size and a quality score, and plotting size against
+quality gives the rate-distortion curve this repository keeps referring to.
+Rate is file size. Distortion is how degraded it looks.
+
+Where the bytes actually are, per Gaussian, out of 236:
+
+| Field | Bytes | Share |
+|---|---:|---:|
+| `shN`, view-dependent colour | 180 | 76% |
+| `quats`, rotation | 16 | 7% |
+| `means`, position | 12 | 5% |
+| `sh0`, base colour | 12 | 5% |
+| `scales`, size | 12 | 5% |
+| `opacities`, transparency | 4 | 2% |
+
+Three quarters of the file is the data describing how a blob's colour shifts as
+you walk around it. Any real win comes from there, or from having fewer blobs.
 
 ## Goal
 
@@ -16,11 +48,11 @@ detail is condensed below and its ledger holds the rest.
 
 ## Where the work is
 
-Branch `milestone-2-bench`, forked from `master` at `4528129`, HEAD `bb7eb28`.
+Branch `milestone-2-bench`, forked from `master` at `4528129`, HEAD `add184c`.
 **Nothing on this branch has been pushed.** `master` is at `4528129` and is
 pushed.
 
-Tasks 1 and 2 of 11 are complete. Task 3 is next and has not started.
+Tasks 1, 2 and 3 of 11 are complete. Task 4 is next and has not started.
 
 ## The number to beat
 
@@ -40,6 +72,14 @@ baseline milestone 3 has to improve on. The spec's original worry, that this
 project "may not beat `PngCompression` by much", is well founded and is now
 quantified rather than guessed.
 
+**The one structural advantage worth knowing**: `PngCompression` compresses
+each Gaussian more cleverly but never asks whether a Gaussian should exist.
+The truck holds 1,000,000 because `cap_max` says so, not because the scene
+needs that many. Pruning composes with their approach rather than competing
+with it, which is why milestone 4 is probably the strongest card in the plan.
+This is reasoning from the method, not a measured result, and it stays a
+hypothesis until milestone 4 measures it.
+
 ## Completed on this branch
 
 - **Task 1, `0bf9f0e..862241f`: dependencies and the lock file.** Added
@@ -53,47 +93,115 @@ quantified rather than guessed.
   `src/splatpipe/formats/splat.py` inverts the 32-byte record back to a
   `GaussianCloud`, with explicit clamps at both quantisation edges. Reviewed
   with two Important and one Minor. Clean after three fix rounds.
-- Controller documentation fixes committed separately as `61ecc76` and
-  `bb7eb28`.
+- **Task 3, `bb7eb28..add184c`: the codec protocol, `PlyCodec` and
+  `SplatCodec`.** `src/splatpipe/bench/codecs.py` plus `tests/test_codecs.py`.
+  Reviewed with one Important and two Minor. Clean after one fix round.
+- Controller documentation commits: `61ecc76`, `bb7eb28`, `2fc4cfb`.
 
-**Verified today at `bb7eb28`:** fast tier `126 passed, 3 deselected` in 21.0s;
-complete tier `129 passed` in 121.4s; `setup_env.py --check` reports
+**Verified at `add184c` on 2026-09-02:** fast tier `134 passed, 3 deselected`
+in 5.8s; complete tier `137 passed` in 354s; `setup_env.py --check` reports
 `gsplat checkout: pinned` and `applied` for both patches.
 
-## What the three Task 2 fix rounds were actually about
+Note the complete tier took 354s against 121s at `bb7eb28`. Nothing failed and
+nothing was investigated, because the run is green either way. If it stays slow
+next session it is worth a look before assuming the machine was busy.
 
-All three were claim accuracy, not code correctness. The code was right on the
-first commit. Recording this because the pattern is the useful part:
+## What Task 3 was actually about
 
-- **A wrong divisor in the quaternion decode is undetectable and also
-  harmless.** `(stored - 128) / d` followed by normalisation cancels `d`
-  entirely. Dividing by 255 instead of 128 produces error identical to the
-  correct decoder.
-- **Dropping the normalisation gives error 0.0078, smaller than the correct
-  decoder's 0.0105.** No tolerance catches it.
-- **An offset of 127 passes while 129 fails.** `encode_splat` truncates rather
-  than rounds when it casts to uint8, so 127 and 128 land in the same
-  quantisation bucket. Tightening the tolerance cannot separate them.
-- The test therefore pins the byte slice hard and the 128 offset in one
-  direction only. Its docstring says exactly that.
+Task 3 shipped twice. A cheap model transcribed the brief and committed
+`46b440c`, faithfully. A capable implementer then took ownership and found that
+**the brief itself was wrong**, which transcription structurally cannot catch.
 
-Two of the three rounds corrected wording I had supplied myself, once after the
-reviewer's stated rationale turned out to be false in both halves, and once
-after my own corrected docstring still overclaimed. Measure before writing a
-tolerance or a rationale into a test. Reasoning about this format on paper
-produced a false claim three times.
+- **`PlyCodec.encode` and `SplatCodec.encode` disagreed about a missing target
+  directory.** `write_ply` calls `Path(path).parent.mkdir(parents=True,
+  exist_ok=True)` at `src/splatpipe/gaussians.py:154`, so the ply side worked.
+  `Path.write_bytes` does not, so the splat side raised `FileNotFoundError`.
+  Task 6, at plan line 848, calls `codec.encode(a_cloud(256), tmp_path /
+  "splat")` and nothing creates that directory. **Task 6 would have failed on
+  its first codec line**, three tasks from now, looking like a Task 6 problem.
+  `encode` now owns its directory and the protocol docstring says so.
+- **`test_ply_codec_is_lossless` checked 2 of the 6 arrays.** Decoders that
+  zeroed `scales`, `quats`, `opacities` or `sh0` all passed it while its
+  docstring claimed the anchor loses nothing. It now checks all six.
+- `@runtime_checkable` had no caller, which is the decorative-guard pattern
+  this project was already burned by. It now has an isinstance test with a
+  negative case.
+- `test_codec_names_are_distinct` reduced to `"ply" != "splat"`, a restatement
+  of two literals. It was replaced by a test of Task 9's `scratch / codec.name`
+  layout, which catches the real failure: sharing one directory made the
+  `.splat` report 18,625 bytes instead of 2,048.
+
+The one review round was **entirely about a false docstring claim**, not code.
+The implementer found the directory bug, fixed it, wrote the guarding test, and
+then wrote in that test's docstring that "nothing downstream would have
+reported the disagreement", which its own headline finding disproves. That
+sentence sat on the test protecting the fix and read as an argument for
+deleting both. The corrected wording draws the distinction that matters: Task 9
+tolerates either convention, Task 6 forces one.
+
+**The lesson, now four rounds old across two tasks: measure before writing a
+rationale, and a false claim in a docstring is a defect at the severity of
+wrong code.** Every seat this session verified rather than agreed, and each one
+caught something the seat before it had not.
 
 ## In Progress
 
-- Nothing is under implementation. Task 2 finished and was reported.
-- **Task 3 is next**: the codec protocol plus `PlyCodec` and `SplatCodec`.
-  Creates `src/splatpipe/bench/__init__.py` and `src/splatpipe/bench/codecs.py`,
-  tests in `tests/test_codecs.py`. BASE is `bb7eb28`. Expect
-  `131 passed, 3 deselected` afterwards.
+- Nothing is under implementation. Task 3 finished, passed its review gate, and
+  was recorded.
+- **Task 4 is next**: `PngCodec`. Appends to `src/splatpipe/bench/codecs.py`,
+  tests in `tests/test_codecs.py`. BASE is `add184c`. Expect
+  `134 passed, 6 deselected` afterwards, the three new tests being GPU-marked
+  and therefore deselected in the fast tier.
 - If this section names a task as under way and the ledger has no matching
   `Task N: complete` line, that task did not finish. Read the ledger at
   `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md` before changing
   anything.
+
+## Can I photograph something and render it yet
+
+**No, and the gap is bigger than one missing feature.** Recorded here because
+it was asked directly and the answer was not written down anywhere.
+
+- **One photograph is never enough.** `SceneLayout.discover` sets a floor of 8
+  images at `src/splatpipe/scene.py:18`, and that is a sanity check rather than
+  a quality bar. Realistically 50 to 200 photographs walking around the
+  subject.
+- **Nothing in this repository turns photographs into camera poses.**
+  `SceneLayout.discover` at `src/splatpipe/scene.py:28` requires
+  `sparse/0/cameras.bin`, `images.bin` and `points3D.bin`, which is a finished
+  COLMAP reconstruction. The installed `pycolmap` is the reader package: it
+  exposes `SceneManager` and `COLMAPDatabase` and nothing that reconstructs.
+  There is no COLMAP binary on this machine. Verified 2026-09-02.
+- **The path that works today, with no code change**: install COLMAP proper,
+  run its automatic reconstructor over the photographs to produce `sparse/0/`,
+  then point `splatpipe run` at that directory.
+- The project spec makes this success criterion 4, "the pipeline reproduces a
+  scene from a phone capture with a single command on a clean machine", and
+  lists poses as a pipeline stage at spec line 88. **No milestone from 1 to 8
+  schedules it.** That is the standing gap, not an oversight of this session.
+
+## The open strategic decision
+
+Raised by Ved on 2026-09-02 and not yet decided. Recorded so it is not
+rediscovered from scratch.
+
+The question was: the goal is to beat `PngCompression`, so what happens if that
+fails, given this is a portfolio project that can change course.
+
+- **The compression ratio is close to worthless as a portfolio artifact.**
+  Nobody reviewing the work can calibrate 15.1x against 14.5x. What is rare and
+  visible is that this project can reproduce its own results: checksummed
+  manifests, two test tiers, a verified from-scratch provisioning path, and a
+  documented habit of correcting its own false claims. That is already banked.
+- **Four directions were sketched**: change the win condition to speed rather
+  than size, since `PngCompression` takes about two minutes; go for the viewer
+  and the shareable link, which demonstrates far better than a table; close the
+  capture gap above, which is a week rather than a research programme; or lean
+  into measurement and publish a replication study of the published claims.
+- **The suggestion on the table**: finish milestone 2, then close the capture
+  gap before milestones 3 to 5, then attempt 3 and 4 with a pre-declared
+  stopping rule so the attempt does not become a sunk-cost march.
+- **Ved has not ruled on any of this.** Do not act on it as though he has.
 
 ## Traps waiting in the remaining tasks
 
@@ -107,10 +215,12 @@ here because each is a silent wrong number rather than a crash.
   this as the named constant `NORMALIZE_WORLD_SPACE = True`.
 - **`render.py` must derive `sh_degree` from the cloud**, because a decoded
   `.splat` has degree 0 while a `.ply` has degree 3. Hardcoding it renders the
-  wrong thing for one codec and produces a plausible number.
+  wrong thing for one codec and produces a plausible number. Task 3 now asserts
+  both degrees at the codec layer, so the trap is pinned one layer earlier.
 - **`PngCompression.compress` mutates the dictionary it is given.** It applies
   `log_transform` to means and normalises quats in place. `PngCodec` must pass
-  copies, or the cloud is corrupted for every codec measured afterwards.
+  copies, or the cloud is corrupted for every codec measured afterwards. This
+  is Task 4, which is next.
 - **`PngCompression` crops to a square number of Gaussians.** Truck holds
   exactly 1,000,000, which is 1000 squared, so nothing is dropped now. From
   milestone 4 pruning will rarely produce a square count, so `curve.json`
@@ -128,6 +238,11 @@ here because each is a silent wrong number rather than a crash.
   interactive shell, prints its banner and exits 0 having run no tests. It is
   indistinguishable from success by exit code alone. Run those lines through
   PowerShell and check that pytest output is actually present.
+- **`Codec` has no production caller yet.** The protocol is enforced only by
+  `tests/test_codecs.py`. Task 9's `run_bench` is duck-typed over
+  `codec.name/encode/decode/size` rather than annotated against the protocol.
+  Raised by the Task 3 reviewer as a cannot-verify item, ruled a Task 4 and 9
+  question rather than a Task 3 defect.
 - **Four milestone 1 Minors are consciously accepted**, ruled on by the
   whole-branch review. They do not need rediscovering:
   - Task 7: an invalid cloud combined with an unknown order raises
@@ -154,8 +269,8 @@ here because each is a silent wrong number rather than a crash.
   is a loud refusal, not corruption.
 - `scripts/browser_test.js` hardcodes two absolute paths under the author's
   home directory. It is spike-era tooling that nothing in the pipeline calls.
-- Phone captures still have no scheduled pose-estimation stage. This blocks the
-  later three-scene deployment milestone.
+- Phone captures still have no scheduled pose-estimation stage. See the capture
+  section above.
 
 ## Key Decisions
 
@@ -166,6 +281,11 @@ here because each is a silent wrong number rather than a crash.
   is open. Ved has asked for this directly. It overrides the
   `subagent-driven-development` skill's continuous-execution rule, and the
   reason is that this project runs on weekends with gaps of up to two weeks.
+- **Spend the capable model on the task, not only on the review.** Task 3
+  demonstrated the cost of not doing this: a faithful transcription of a
+  defective brief passed its own tests and would have broken Task 6. Ved
+  instructed the upgrade directly. Reserve the cheapest tier for work where the
+  brief has already been validated against the code it touches.
 - **Use the milestone branch in the existing checkout**: `.venv/`,
   `_gsplat_repo/`, `data/`, `results/` and `out/` are untracked and bound to
   this repo root. A separate worktree lacks the 15 GB working environment.
@@ -173,6 +293,10 @@ here because each is a silent wrong number rather than a crash.
   default-branch documentation updates on 2026-08-28. Merges remain his call.
   The milestone 1 merge into `master` was made on 2026-09-01 by his explicit
   instruction, after both tiers were re-verified on the exact tree being merged.
+- **Task commits are made by implementers.** This is the established cadence
+  across both milestones and sits alongside Ved's standing rule that `git
+  commit` needs permission. An implementer flagging the tension is right to;
+  the resolution is that task commits are pre-authorized and pushes are not.
 - **The default branch is named `master`**: there is no `main` branch.
 - **Style is binding**: no emoji, em dashes, litotes, irony, or exclamation
   marks. Use plain declarative prose and comment only non-obvious reasoning.
@@ -196,6 +320,10 @@ here because each is a silent wrong number rather than a crash.
   `decode(dir) -> GaussianCloud`, `size(dir) -> int`. `PngCompression`
   genuinely produces eight files, so a single-file protocol would have to
   invent a container, which is milestone 5's job rather than milestone 2's.
+- **`encode` owns its target directory and creates it when missing.** Settled
+  in Task 3 after the two implementations disagreed. Task 9's `run_bench`
+  tolerates either convention because it calls mkdir first; Task 6 does not,
+  and that is the caller that makes the contract mandatory.
 - **`GaussianCloud.scales` are logs and `opacities` are logits**, exactly as
   stored in the `.ply`. Nothing converts on read. Every codec inverts back to
   this convention.
@@ -215,6 +343,10 @@ here because each is a silent wrong number rather than a crash.
 - **`curve.json` stays separate from `manifest.json`**: a bench run is
   repeatable against an unchanged training run, and overwriting the manifest
   would lose that distinction.
+- **Citations into the plan carry a stable identifier beside the line number.**
+  The plan has been renumbered twice this milestone. A docstring citing
+  `plan line 848` alone rots; citing
+  `test_render_uses_the_clouds_own_sh_degree (plan line 848)` survives.
 
 ### Milestone 1, still binding
 
@@ -313,19 +445,22 @@ found three defects that reading had not.
 
 ## Next Steps
 
-1. **(P0) Task 3 of the milestone 2 plan**: the codec protocol, `PlyCodec` and
-   `SplatCodec`. BASE `bb7eb28`. Then tasks 4 through 11, one per turn.
+1. **(P0) Task 4 of the milestone 2 plan**: `PngCodec`. BASE `add184c`. Then
+   tasks 5 through 11, one per turn. Task 4 is the one where
+   `PngCompression.compress` mutates its input dictionary, so pass copies.
 2. **(P1) After Task 11**: whole-branch review on the most capable model, then
    `superpowers:finishing-a-development-branch`. Ved makes the merge call.
-3. **(P1) Decide whether phone captures gain a COLMAP stage around milestone
-   6.5, or whether the three deployment scenes come from public datasets.**
-   This is an owner decision for Ved and is the one spec success criterion
-   nothing in milestones 1 to 8 currently schedules.
-4. **(P2) Revisit Morton tie-breaking before milestone 5**, if the container
+3. **(P1) Ved to rule on the open strategic decision above**, ideally before
+   milestone 3 starts, because a pre-declared stopping rule is what keeps the
+   attempt from becoming a sunk-cost march.
+4. **(P1) Decide whether phone captures gain a COLMAP stage**, and if so
+   whether it lands before milestone 3 rather than around 6.5. This is the one
+   spec success criterion nothing in milestones 1 to 8 currently schedules.
+5. **(P2) Revisit Morton tie-breaking before milestone 5**, if the container
    format is going to claim byte parity with gsplat.
-5. **(P2) Consider the four accepted milestone 1 Minors closed** unless
+6. **(P2) Consider the four accepted milestone 1 Minors closed** unless
    something changes.
-6. **(P3) `milestone-1-scripted-pipeline` still exists locally and on the
+7. **(P3) `milestone-1-scripted-pipeline` still exists locally and on the
    remote**, pointing at the same commit as `master`. It is kept as the record
    and is safe to delete whenever Ved wants. It has not been deleted because
    nobody asked.
@@ -333,8 +468,8 @@ found three defects that reading had not.
 ## Context
 
 - **Branches**: `master` at `4528129`, pushed, carrying all of milestone 1.
-  `milestone-2-bench` at `bb7eb28`, unpushed, carrying the milestone 2 spec
-  `0c04165`, the plan `d11e425`, and tasks 1 and 2. The spec and the plan exist
+  `milestone-2-bench` at `add184c`, unpushed, carrying the milestone 2 spec
+  `0c04165`, the plan `d11e425`, and tasks 1 to 3. The spec and the plan exist
   only on this branch, so a reader on `master` cannot see them yet.
   `milestone-1-scripted-pipeline` at `9f7f3a1`, kept as a record. There has
   never been a pull request. GitHub SSH and `gh` access work as user
@@ -344,7 +479,7 @@ found three defects that reading had not.
   `docs/superpowers/plans/2026-09-01-milestone-2-bench.md` and its **Global
   Constraints** section, then the git-ignored ledger at
   `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md`. The ledger holds
-  the pre-flight scan table and Rulings 1 through 12, each with its cost if
+  the pre-flight scan table and Rulings 1 through 15, each with its cost if
   wrong. Trust the ledger and `git log` over anything remembered.
 - **The project spec** at
   `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`
@@ -359,8 +494,10 @@ found three defects that reading had not.
   both artifacts with sizes and SHA-256 hashes. Reproducing it costs about 8
   minutes of GPU time.
 - **Files changed on this branch so far**: `requirements.lock.txt`,
-  `src/splatpipe/formats/splat.py`, `tests/test_package.py`,
-  `tests/test_splat_format.py`, and the two milestone 2 documents.
+  `src/splatpipe/formats/splat.py`, `src/splatpipe/bench/__init__.py`,
+  `src/splatpipe/bench/codecs.py`, `tests/test_package.py`,
+  `tests/test_splat_format.py`, `tests/test_codecs.py`, the two milestone 2
+  documents, and the four root Markdown files.
 - **Commands to resume**:
 
   ```powershell
@@ -373,8 +510,8 @@ found three defects that reading had not.
   cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
   ```
 
-  Expected at `bb7eb28`: clean tree, `126 passed, 3 deselected` fast,
-  `129 passed` complete, `pinned` plus two `applied`.
+  Expected at `add184c`: clean tree, `134 passed, 3 deselected` fast,
+  `137 passed` complete, `pinned` plus two `applied`.
 
 - **Command caveats**: run `cmd /c` lines through PowerShell, never through Git
   Bash. Use `-o addopts=` for the complete suite; `-m gpu` runs only the
@@ -382,7 +519,8 @@ found three defects that reading had not.
   `python -c`, so run a scratch `.py` file instead of an inline snippet. Bash
   heredocs mangle backslashes in Windows paths and fail outright on large
   Markdown documents; use the file-writing tools for both.
-- **Open questions**: how phone captures get COLMAP poses; whether decode time
-  belongs on the rate-distortion curve at all, recorded for now because it is
-  nearly free to measure and load time is a stated success criterion for the
-  milestone 7 viewer.
+- **Open questions**: how phone captures get COLMAP poses; whether the project
+  pivots per the strategic decision above; whether decode time belongs on the
+  rate-distortion curve at all, recorded for now because it is nearly free to
+  measure and load time is a stated success criterion for the milestone 7
+  viewer.

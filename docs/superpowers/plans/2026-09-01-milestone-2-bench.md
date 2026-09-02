@@ -471,7 +471,7 @@ class SplatCodec:
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_codecs.py -q`
 
-Expected: PASS, 5 passed.
+Expected: PASS, 8 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -617,7 +617,7 @@ Expected: PASS, 3 passed.
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 131 passed, 6 deselected.
+Expected: PASS, 134 passed, 6 deselected.
 
 - [ ] **Step 6: Commit**
 
@@ -1763,7 +1763,7 @@ The CLI tests stub `bench_run`'s module-level names, so the default codec list i
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 150 passed, 8 deselected.
+Expected: PASS, 153 passed, 8 deselected.
 
 - [ ] **Step 9: Commit**
 
@@ -1976,7 +1976,7 @@ In `HANDOFF.md`, move milestone 2 from Next Steps into Completed, record the mea
 
 Run: `.venv\Scripts\python.exe -m pytest -q`
 
-Expected: PASS, 150 passed, 10 deselected.
+Expected: PASS, 153 passed, 10 deselected.
 
 Run from PowerShell:
 
@@ -1984,7 +1984,7 @@ Run from PowerShell:
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected: PASS, 160 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
+Expected: PASS, 163 passed. Confirm pytest output is actually present; a `cmd /c` line launched from Git Bash exits 0 having run nothing.
 
 - [ ] **Step 7: Commit**
 
@@ -2005,12 +2005,12 @@ update the expected count rather than deleting the test.
 |---|---:|---:|
 | 1 | 117 | 3 |
 | 2 | 126 | 3 |
-| 3 | 131 | 3 |
-| 4 | 131 | 6 |
-| 5 | 134 | 6 |
-| 6 | 134 | 8 |
-| 7 | 138 | 8 |
-| 8 | 143 | 8 |
-| 9 | 150 | 8 |
-| 10 | 150 | 9 |
-| 11 | 150 | 10 |
+| 3 | 134 | 3 |
+| 4 | 134 | 6 |
+| 5 | 137 | 6 |
+| 6 | 137 | 8 |
+| 7 | 141 | 8 |
+| 8 | 146 | 8 |
+| 9 | 153 | 8 |
+| 10 | 153 | 9 |
+| 11 | 153 | 10 |

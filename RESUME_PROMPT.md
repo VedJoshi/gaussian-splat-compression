@@ -11,7 +11,7 @@ You are continuing work on a computer vision portfolio project. Read this whole 
 
 A 3D Gaussian Splatting pipeline: capture a scene, train a splat model, compress it, and deploy it to a browser. The portfolio claim is "I built and deployed this, and the hard part was the compression, which I implemented from the literature and benchmarked." Not "I trained a model."
 
-The work is split into eight milestones. **Milestone 1 is complete and merged into `master`.** It turned an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`. **Milestone 2 is under way on branch `milestone-2-bench`: 2 of its 11 tasks are done.** It builds `src/splatpipe/bench/` and measures the rate-distortion baselines this project has to beat.
+The work is split into eight milestones. **Milestone 1 is complete and merged into `master`.** It turned an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`. **Milestone 2 is under way on branch `milestone-2-bench`: 3 of its 11 tasks are done.** It builds `src/splatpipe/bench/` and measures the rate-distortion baselines this project has to beat.
 
 Read these four files first, in this order. They are the authority and they disagree with nothing:
 
@@ -20,7 +20,7 @@ Read these four files first, in this order. They are the authority and they disa
 3. `docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md`: the milestone 2 design the current plan argues from. It records the probe measurements, the dependency traps, the module table, and the codec protocol.
 4. `docs/superpowers/plans/2026-09-01-milestone-2-bench.md`: 11 tasks with complete code for each. Read its **Global Constraints** section carefully; every task inherits it.
 
-Then read the ledger at `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md`. It is the authoritative record of what is complete and every ruling made so far, and it holds the pre-flight scan table plus Rulings 1 through 12, each with its cost if wrong. **Trust the ledger and `git log` over anything you think you remember.**
+Then read the ledger at `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md`. It is the authoritative record of what is complete and every ruling made so far, and it holds the pre-flight scan table plus Rulings 1 through 15, each with its cost if wrong. **Trust the ledger and `git log` over anything you think you remember.**
 
 The milestone 1 plan and ledger are still on disk at
 `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md` and
@@ -30,13 +30,17 @@ what to do next.
 
 ## Where things stand
 
-**Work on `milestone-2-bench`, which is at `bb7eb28` and has not been pushed.** It forked from `master` at `4528129`, which is pushed and carries all of milestone 1. The milestone 2 spec and plan are on this branch only, so they are not visible from `master` or from the remote. There is no `main` branch and there has never been a pull request. `milestone-1-scripted-pipeline` still exists at `9f7f3a1`; it is kept as the record, not as a place to add work.
+**Work on `milestone-2-bench`, which is at `add184c` and has not been pushed.** It forked from `master` at `4528129`, which is pushed and carries all of milestone 1. The milestone 2 spec and plan are on this branch only, so they are not visible from `master` or from the remote. There is no `main` branch and there has never been a pull request. `milestone-1-scripted-pipeline` still exists at `9f7f3a1`; it is kept as the record, not as a place to add work.
 
-**Tasks 1 and 2 of milestone 2 are complete and reviewed. Task 3 is next and has not started.** Task 3 is the codec protocol plus `PlyCodec` and `SplatCodec`: it creates `src/splatpipe/bench/__init__.py` and `src/splatpipe/bench/codecs.py` with tests in `tests/test_codecs.py`. BASE is `bb7eb28` and the fast tier should read `131 passed, 3 deselected` afterwards.
+**Tasks 1, 2 and 3 of milestone 2 are complete and reviewed. Task 4 is next and has not started.** Task 4 is `PngCodec`: it appends to `src/splatpipe/bench/codecs.py` with tests in `tests/test_codecs.py`. BASE is `add184c` and the fast tier should read `134 passed, 6 deselected` afterwards, the new tests being GPU-marked and therefore deselected. Task 4 is where `PngCompression.compress` mutates the dictionary it is given, so pass copies.
 
 Task 1 added the `PngCompression` dependencies and locked them: `cupy-cuda12x==13.6.0`, `torchpq==0.3.0.6`, and `plas` pinned at commit `4f1109c9`. Three traps are recorded there. cupy 14 and later require `numpy>=2.0` and would silently break this project's `numpy<2.0.0` pin, so the version is pinned with `==` rather than `<`, which is a redirect operator in `cmd`. An unpinned git URL is not a lock, so `plas` carries its resolved commit like the three git entries that preceded it. And `torchpq` does not declare `cupy` in its metadata at all: `pip install torchpq` succeeds without it, and `torchpq/__init__.py` raises `ModuleNotFoundError` at first import.
 
 Task 2 added `decode_splat` to `src/splatpipe/formats/splat.py`, inverting the 32-byte record back to a `GaussianCloud` with explicit clamps at both quantisation edges. It returns `shN` of shape `(N, 0, 3)`, so a decoded `.splat` has `sh_degree == 0` while a `.ply` has 3. That is a real fidelity difference between the codecs and later code has to handle it rather than assume a degree.
+
+Task 3 added `src/splatpipe/bench/codecs.py`: the `Codec` protocol, `PlyCodec`, `SplatCodec` and `directory_size`. Two things it settled are worth carrying forward. **`encode` owns its target directory and creates it when missing.** The two implementations disagreed: `write_ply` calls `Path(path).parent.mkdir(parents=True, exist_ok=True)` at `src/splatpipe/gaussians.py:154` so `PlyCodec` worked, while `Path.write_bytes` does not so `SplatCodec` raised `FileNotFoundError`. Task 9's `run_bench` calls mkdir first and so tolerates either convention, but Task 6's `test_render_uses_the_clouds_own_sh_degree` encodes into an uncreated `tmp_path / "splat"` at plan line 848, which is the caller that makes the contract mandatory. **And a decoded `.splat` reporting `sh_degree == 0` while a decoded `.ply` reports 3 is now asserted at the codec layer**, so the `render.py` trap below is pinned one layer earlier than it was.
+
+Task 3 also shipped twice, and why is the useful part. A cheap model transcribed the brief faithfully and its tests passed. The brief itself was wrong, and transcription structurally cannot catch that: the directory defect above was in the plan text. Ved instructed the upgrade to a capable model, which found it. **Spend the capable tier on the task, not only on the review, unless the brief has already been validated against the code it touches.**
 
 **The number milestone 3 has to beat is 16,258,005 bytes.** `PngCompression` was probed end to end before the plan was written: it runs, it round-trips, it takes about two minutes. Against the raw `.ply` at 236,001,478 bytes that is 14.52x, and it is half the size of the 32,000,000-byte `.splat` while also retaining spherical harmonics, which the `.splat` discards. `PngCompression`, not the `.splat`, is the baseline. The project spec's original worry that this pipeline "may not beat `PngCompression` by much" is well founded and is now quantified.
 
@@ -58,7 +62,7 @@ Task 10 added `src/splatpipe/stages/train.py` and `src/splatpipe/cli.py`. Traini
 
 A control worth knowing about from the truck run: the new `.splat` hashes differently from the one recorded for the spike, and re-encoding the spike's own ply through today's code reproduces the old hash exactly, which proves the difference is CUDA non-determinism in training rather than a change in the encoder. `out/` is git-ignored, anchored as `/out/`, because a run writes roughly 700 MB there including two 236 MB plys.
 
-Current suite at `bb7eb28`, measured on 2026-09-01: `126 passed, 3 deselected` fast tier in 21 seconds, `129 passed` complete tier in 121 seconds on a settled GPU, longer when it is already warm. The complete tier trains the real gsplat trainer twice, once per end-to-end test. Milestone 2 ends at 160 in the complete tier if every task lands its planned tests; the plan carries a per-task count table you can check against.
+Current suite at `add184c`, measured on 2026-09-02: `134 passed, 3 deselected` fast tier in 5.8 seconds, `137 passed` complete tier in 354 seconds. The complete tier trains the real gsplat trainer twice, once per end-to-end test. That 354 seconds is against 121 seconds at `bb7eb28` for a suite only eight CPU tests larger, which is not explained; nothing failed, so it was not investigated. If it stays slow, look before assuming the machine was busy. Milestone 2 ends at 163 in the complete tier if every task lands its planned tests; the plan carries a per-task count table you can check against, renumbered on 2026-09-02 after Task 3 shipped 8 tests where the plan predicted 5.
 
 **The provisioning sequence in `README.md` is verified, not guessed.** It was run against an empty directory on 2026-08-31: all seven steps succeed, both patches apply to the fresh venv's own site-packages, and that venv passes all 119 tests. Running it found three defects reading had not, all now fixed. `DISTUTILS_USE_SDK` was set nowhere, so torch refused to build any CUDA extension inside a vcvars shell. `setup_env.py` could not bootstrap at all: it imported gsplat to locate the file it patches, and that import triggers the JIT compile which fails with exactly the error the patch exists to prevent. And the documented dependency step pulled `fused-bilagrid`, which does not compile under MSVC and which this project has never had installed.
 
@@ -130,7 +134,7 @@ git log --oneline -5
 .venv\Scripts\python.exe scripts\setup_env.py --check
 ```
 
-Expected: a clean tree on `milestone-2-bench` at `bb7eb28` or later, with `bb7eb28` present in recent history; the branch has no upstream, so `git status` reporting no tracking ref is correct rather than a problem; `126 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected: a clean tree on `milestone-2-bench` at `add184c` or later, with `add184c` present in recent history; the branch has no upstream, so `git status` reporting no tracking ref is correct rather than a problem; `134 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 `--check` needs no compiler shell and no GPU: `resolve_target` locates the installed files rather than importing them, which is what lets it run on a machine where gsplat cannot yet compile. Only the complete test tier needs `scripts\env.bat`, and that line must be run from PowerShell or `cmd`, never from Git Bash, which rewrites `/c` into a path and silently runs nothing while exiting 0.
 
@@ -153,7 +157,7 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## What is left
 
-1. **Milestone 2, tasks 3 through 11**, one per turn, each through `superpowers:subagent-driven-development`: implementer dispatch, task review, fix loop, scoped re-review, ledger completion line. Task 3 is the codec protocol with `PlyCodec` and `SplatCodec`, BASE `bb7eb28`.
+1. **Milestone 2, tasks 4 through 11**, one per turn, each through `superpowers:subagent-driven-development`: implementer dispatch, task review, fix loop, scoped re-review, ledger completion line. Task 4 is `PngCodec`, BASE `add184c`.
 2. **After task 11**: a whole-branch review on the most capable model, then `superpowers:finishing-a-development-branch`. Ved makes the merge call.
 3. Everything from milestone 1 is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; the provisioning sequence has been verified against an empty directory rather than reconstructed; and the merge into `master` has been taken.
 
@@ -180,6 +184,13 @@ Make routine calls yourself and record them. If you find something in the plan t
 
 **Measure before you write a rationale into a test.** Milestone 2 Task 2 needed three fix rounds, all of them claim accuracy rather than code correctness, and two of them corrected wording the controller had supplied. Reasoning about the `.splat` quaternion encoding on paper produced a false claim three separate times: a wrong divisor is undetectable and also harmless because it cancels under normalisation; dropping the normalisation gives a smaller error than the correct decoder; and an offset of 127 passes while 129 fails, because `encode_splat` truncates rather than rounds. A docstring that states what a test pins is only worth having if the statement was measured.
 
+Task 3's single fix round was the same defect in a sharper form. The implementer found the directory bug, fixed it, wrote the test that guards the fix, and then wrote in that test's docstring that "nothing downstream would have reported the disagreement", which its own headline finding disproves. That sentence sat on the test protecting the fix and read as an argument for deleting both. **A false claim in a docstring is a defect at the severity of wrong code in this project, and it is most dangerous when it is attached to the thing it undermines.** Cite a stable identifier beside any plan line number you use; the plan has been renumbered twice this milestone.
+
 Do not treat a brief as current merely because it is detailed. Milestone 1's Task 11 brief edited README sections that a later commit had already deleted. Check the file before transcribing an edit into it. Milestone 2's Task 2 brief called a test helper `a_cloud` that does not exist; the real one is `make_cloud`. Check the names too.
 
-Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses. The milestone 1 merge was one of these and has been taken.
+Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The milestone 1 merge was one of these and has been taken. Two owner decisions are open, both raised on 2026-09-02 and neither ruled on:
+
+- **How phone captures get COLMAP poses.** Nothing in this repository produces them: the installed `pycolmap` is the reader package and there is no COLMAP binary on the machine, so the project cannot yet consume a scene Ved shot himself. This is spec success criterion 4 and no milestone from 1 to 8 schedules it.
+- **Whether the project keeps aiming to beat `PngCompression` at all.** The four alternatives sketched are: compete on compression speed rather than size; go for the viewer and the shareable link; close the capture gap first; or lean into measurement and publish a replication study. `HANDOFF.md` records the full argument. Do not act as though this has been decided.
+
+Note that task commits are pre-authorized and pushes are not, which sits alongside Ved's standing rule that `git commit` needs permission. An implementer flagging that tension is right to raise it.

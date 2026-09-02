@@ -8,6 +8,50 @@ and rendering performance.
 The central question is practical: how much of a trained Gaussian scene can be
 removed or quantized before the visual loss becomes unacceptable?
 
+## What this does, without the jargon
+
+Photograph an object from many angles. Software works out where each photo was
+taken from, then fills the space with millions of tiny coloured translucent
+blobs and adjusts each blob's position, size, colour and transparency until the
+cloud, seen from where each photo was taken, matches that photo. You can then
+view the object from angles you never photographed. That is Gaussian splatting,
+and each blob is a Gaussian.
+
+The resulting cloud is large. The reference truck scene is 1,000,000 blobs and
+236 MB, which is too large to send to a browser. So the question above becomes:
+how small can it get before it starts looking bad. Measuring that trade-off is
+what "rate-distortion" means throughout this repository. Rate is file size,
+distortion is quality lost.
+
+Where the bytes go, per Gaussian, out of 236:
+
+| Field | Bytes | Share |
+|---|---:|---:|
+| `shN`, view-dependent colour | 180 | 76% |
+| `quats`, rotation | 16 | 7% |
+| `means`, position | 12 | 5% |
+| `sh0`, base colour | 12 | 5% |
+| `scales`, size | 12 | 5% |
+| `opacities`, transparency | 4 | 2% |
+
+Three quarters of the file describes how each blob's colour shifts as the
+viewer moves around it. Compression wins come from that field, or from storing
+fewer blobs.
+
+## What you need before you can run it
+
+This pipeline consumes a COLMAP scene, not a folder of photographs. It requires
+`images/` holding at least 8 images, and `sparse/0/` holding `cameras.bin`,
+`images.bin` and `points3D.bin`, which together are a finished COLMAP
+reconstruction. `SceneLayout.discover` in `src/splatpipe/scene.py` checks this
+before any GPU time is spent.
+
+**Nothing in this repository produces those camera poses.** The `pycolmap`
+dependency is the reader package and exposes no reconstruction API. To use your
+own photographs today, run COLMAP itself over them first, then point
+`splatpipe run` at the directory it produces. A capture-to-poses stage is a
+known gap rather than an oversight; it is tracked in `HANDOFF.md`.
+
 ## Project status
 
 Milestone 1 is complete. One command now trains a COLMAP scene and packages it,
@@ -25,9 +69,12 @@ again as a whole before it was called done. The pipeline provides:
 - a run manifest recording the resolved config and its digest, library
   versions, the Git commit, timings, held-out metrics, and artifact checksums
 
-Milestone 2 is under way. It adds `src/splatpipe/bench/`, which measures
-rate-distortion points on held-out views for the raw `.ply`, the `.splat`, and
-gsplat's own `PngCompression`. It adds no compression of this project's own.
+Milestone 2 is under way, 3 of 11 tasks complete. It adds
+`src/splatpipe/bench/`, which measures rate-distortion points on held-out views
+for the raw `.ply`, the `.splat`, and gsplat's own `PngCompression`. It adds no
+compression of this project's own. The codec protocol and the `.ply` and
+`.splat` codecs exist; `PngCompression`, the cameras, the renderer, the metrics
+and the `bench` subcommand do not yet.
 
 A direct probe run before the harness existed puts `PngCompression` at
 16,258,005 bytes on the truck scene, which is 14.52x against the raw `.ply`.
