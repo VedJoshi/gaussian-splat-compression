@@ -25,6 +25,17 @@ again as a whole before it was called done. The pipeline provides:
 - a run manifest recording the resolved config and its digest, library
   versions, the Git commit, timings, held-out metrics, and artifact checksums
 
+Milestone 2 is under way. It adds `src/splatpipe/bench/`, which measures
+rate-distortion points on held-out views for the raw `.ply`, the `.splat`, and
+gsplat's own `PngCompression`. It adds no compression of this project's own.
+
+A direct probe run before the harness existed puts `PngCompression` at
+16,258,005 bytes on the truck scene, which is 14.52x against the raw `.ply`.
+That is half the size of the `.splat` and it retains spherical harmonics, which
+the `.splat` discards, so it is the baseline the later milestones have to beat.
+The number is a probe rather than a harness result and will be reproduced
+through the bench when milestone 2 closes.
+
 Compression itself begins at milestone 3. Until then the repository should be
 treated as pre-release research code.
 
@@ -205,7 +216,7 @@ rendering performance.
 | Milestone | Outcome | State |
 |---|---|---|
 | 1. Scripted pipeline | One command reproduces the training and export baseline | Done |
-| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | Planned |
+| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | In progress |
 | 3. SH quantization | First measured compression improvement | Planned |
 | 4. Contribution pruning | Quality-aware Gaussian reduction | Planned |
 | 5. Container format | Entropy-coded artifacts with a documented schema | Planned |
@@ -217,7 +228,9 @@ rendering performance.
 
 - [Pipeline design](docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md)
 - [Milestone 1 implementation plan](docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md)
-- [Current implementation handoff](https://github.com/VedJoshi/gaussian-splat-compression/blob/milestone-1-scripted-pipeline/HANDOFF.md)
+- [Milestone 2 benchmark design](docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md)
+- [Milestone 2 implementation plan](docs/superpowers/plans/2026-09-01-milestone-2-bench.md)
+- [Current implementation handoff](HANDOFF.md)
 - [`SPIKE_LOG.txt`](SPIKE_LOG.txt), the full feasibility experiment record
 
 Large datasets, trained artifacts, third-party checkouts, virtual environments,
