@@ -22,10 +22,11 @@ from splatpipe.gaussians import GaussianCloud, read_ply, write_ply
 def directory_size(directory: Path) -> int:
     """Total bytes of every file under `directory`, recursively.
 
-    A directory that does not exist counts as 0 rather than raising, because
-    rglob yields nothing for one. Codecs create their own target directory, so
-    size() is never asked about a missing one, but a zero here is worth telling
-    apart from a measurement before it reaches the curve.
+    Two kinds of path return 0 rather than raising, both because rglob yields
+    nothing for them: a directory that does not exist, and a path that is a
+    file. A caller that needs either to be an error has to check for itself.
+    Every codec in this module creates its target directory in encode, so a 0
+    from a codec's size() means the directory is there and empty.
     """
     return sum(p.stat().st_size for p in Path(directory).rglob("*") if p.is_file())
 
@@ -38,9 +39,12 @@ class Codec(Protocol):
     than requiring the caller to. That is the half of the contract the
     implementations disagreed about: `write_ply` creates the parent itself, so
     PlyCodec worked into a missing directory while SplatCodec raised
-    FileNotFoundError. Task 9's `run_bench` calls mkdir before every encode, so
-    either convention works there today. Stating it here is what keeps the next
-    codec from choosing the other one.
+    FileNotFoundError. Task 9's `run_bench` calls mkdir before every encode
+    (plan line 1623), so that caller tolerates either convention. Task 6's
+    test_render_uses_the_clouds_own_sh_degree does not: it encodes into an
+    uncreated `tmp_path / "splat"` (plan line 848), which is the call the splat
+    side raised on. That caller is what makes this mandatory rather than a
+    preference.
     """
 
     name: str

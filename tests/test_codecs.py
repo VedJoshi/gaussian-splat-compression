@@ -111,9 +111,12 @@ def test_encode_creates_a_target_directory_that_does_not_exist(tmp_path, codec):
     """The two encoders disagreed about this until it was pinned.
 
     write_ply creates the parent, so PlyCodec already worked into a missing
-    directory while SplatCodec raised FileNotFoundError on the same call. Task
-    9's run_bench calls mkdir before every encode, so neither convention breaks
-    it and nothing downstream would have reported the disagreement.
+    directory while SplatCodec raised FileNotFoundError on the same call.
+    run_bench in Task 9 calls mkdir before each encode (plan line 1623) and so
+    tolerates either convention, but Task 6 does not: its
+    test_render_uses_the_clouds_own_sh_degree encodes into `tmp_path / "splat"`
+    without creating it (plan line 848). Removing the mkdir this test guards
+    breaks that caller.
     """
     target = tmp_path / "made_by_encode"
     codec.encode(a_cloud(8), target)
