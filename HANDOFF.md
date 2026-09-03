@@ -1,4 +1,4 @@
-# Handoff: Milestone 2 bench harness: 2026-09-02 (in progress, 3 of 11 tasks)
+# Handoff: Milestone 2 bench harness: 2026-09-03 (in progress, 4 of 11 tasks)
 
 ## What this project is, in plain terms
 
@@ -48,11 +48,11 @@ detail is condensed below and its ledger holds the rest.
 
 ## Where the work is
 
-Branch `milestone-2-bench`, forked from `master` at `4528129`, HEAD `add184c`.
-**Nothing on this branch has been pushed.** `master` is at `4528129` and is
-pushed.
+Branch `milestone-2-bench`, forked from `master` at `4528129`. It is pushed and
+tracks `origin/milestone-2-bench`. `master` is at `4528129` and is unchanged;
+nothing has been merged and there has never been a pull request.
 
-Tasks 1, 2 and 3 of 11 are complete. Task 4 is next and has not started.
+Tasks 1, 2, 3 and 4 of 11 are complete. Task 5 is next and has not started.
 
 ## The number to beat
 
@@ -96,15 +96,21 @@ hypothesis until milestone 4 measures it.
 - **Task 3, `bb7eb28..add184c`: the codec protocol, `PlyCodec` and
   `SplatCodec`.** `src/splatpipe/bench/codecs.py` plus `tests/test_codecs.py`.
   Reviewed with one Important and two Minor. Clean after one fix round.
-- Controller documentation commits: `61ecc76`, `bb7eb28`, `2fc4cfb`.
+- **Task 4, `b5bd7a9..9d0ea66`: `PngCodec`.** Wraps gsplat's `PngCompression`,
+  the baseline this project has to beat. Reviewed with two Important and six
+  Minor. Clean after one fix round. Its fixtures sit at 65,536 Gaussians
+  because that is the smallest cloud the upstream libraries can encode, which
+  is explained below.
+- Controller documentation commits: `61ecc76`, `bb7eb28`, `2fc4cfb`, `b5bd7a9`.
 
-**Verified at `add184c` on 2026-09-02:** fast tier `134 passed, 3 deselected`
-in 5.8s; complete tier `137 passed` in 354s; `setup_env.py --check` reports
+**Verified at `9d0ea66` on 2026-09-03:** fast tier `135 passed, 6 deselected`
+in 6.5s; complete tier `141 passed` in 149.6s; GPU tier for the codec file
+`3 passed, 9 deselected` in 48.9s; `setup_env.py --check` reports
 `gsplat checkout: pinned` and `applied` for both patches.
 
-Note the complete tier took 354s against 121s at `bb7eb28`. Nothing failed and
-nothing was investigated, because the run is green either way. If it stays slow
-next session it is worth a look before assuming the machine was busy.
+The complete tier's 354s at `add184c` did not recur. It is 149.6s here on a
+larger suite, so that was transient machine load rather than a regression, and
+the note asking a future session to watch for it is retired.
 
 ## What Task 3 was actually about
 
@@ -144,14 +150,64 @@ rationale, and a false claim in a docstring is a defect at the severity of
 wrong code.** Every seat this session verified rather than agreed, and each one
 caught something the seat before it had not.
 
+## What Task 4 found, and why it matters beyond Task 4
+
+**`PngCompression` cannot encode fewer than 65,536 Gaussians. At all.**
+
+This is the single most consequential thing learned this session and it is a
+constraint on the roadmap, not on one task.
+
+- `_compress_kmeans` defaults to `n_clusters=65536`
+  (`png_compression.py:326`), and torchpq requires `n_data >= n_clusters`.
+- `compress` builds its kwargs as only `n_sidelen` and `verbose`
+  (`png_compression.py:102`), so `n_clusters` cannot be lowered through the
+  public API. `PngCompression` is a dataclass whose only fields are `use_sort`
+  and `verbose`.
+- Measured, not inferred: 65,535 fails, 65,536 works in 15.9s producing
+  3,439,163 bytes, 65,537 crops one and decodes 65,536.
+- PLAS has a second, lower floor of 256, hit first by anything smaller. Its
+  `min_block_size` defaults to 16 (`plas/core.py:490`) and gsplat never
+  overrides it (`gsplat/compression/sort.py:39`).
+
+**Why this bites at milestone 4.** Milestone 4 is contribution pruning. The
+truck's 1,000,000 Gaussians leave roughly 15x of pruning headroom before the
+baseline codec stops being able to run at all. Below that floor the
+rate-distortion curve simply has no `PngCompression` point, at exactly the
+aggressive operating points pruning exists to explore. Decide before milestone
+4 how the comparison is framed there: either the sweep stops at 65,536, or the
+curve carries a stated gap, or the baseline is reimplemented without the
+torchpq dependency. Nothing currently schedules that decision.
+
+**A second finding, about what the tests do not prove.** At the 65,536 fixture
+size the spherical harmonics round-trip almost perfectly, deviating only
+3.17e-03. That is not evidence of fidelity. It happens because `n_data` equals
+`n_clusters` exactly, so every Gaussian gets its own centroid and the K-means
+step does nothing. At the truck's 1,000,000 those same 65,536 clusters have to
+do real quantisation. **`PngCompression`'s spherical-harmonic loss at real
+scale is unmeasured by anything in this repository.** The implementer declined
+to assert on `shN` and said so in the docstring rather than bank a flattering
+number. Since `shN` is 76% of the file and milestone 3 attacks exactly that,
+knowing this is unmeasured rather than assumed good matters.
+
+**The brief was wrong about mutation, and the copies were removed.** The brief
+said `PngCompression.compress` normalises quats and log-transforms means in
+place, so the codec must pass copies. Measured false: with all six `.copy()`
+calls deleted, every caller array came back byte-identical. `.cuda()` allocates
+a separate device tensor, so `compress` cannot reach the caller's numpy arrays
+whatever it does to the dictionary it is handed. That mechanism is what the
+docstring now states, because it holds even if a future gsplat starts writing
+in place.
+
 ## In Progress
 
-- Nothing is under implementation. Task 3 finished, passed its review gate, and
+- Nothing is under implementation. Task 4 finished, passed its review gate, and
   was recorded.
-- **Task 4 is next**: `PngCodec`. Appends to `src/splatpipe/bench/codecs.py`,
-  tests in `tests/test_codecs.py`. BASE is `add184c`. Expect
-  `134 passed, 6 deselected` afterwards, the three new tests being GPU-marked
-  and therefore deselected in the fast tier.
+- **Task 5 is next**: cameras. Creates `src/splatpipe/bench/cameras.py` with
+  `load_val_views` and the `ValView` type, tests in `tests/test_cameras.py`.
+  BASE is the head after this documentation commit. Expect
+  `138 passed, 6 deselected` afterwards.
+- Task 5 carries the `NORMALIZE_WORLD_SPACE` trap below, which is a silent
+  wrong number rather than a crash. Read it before starting.
 - If this section names a task as under way and the ledger has no matching
   `Task N: complete` line, that task did not finish. Read the ledger at
   `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md` before changing
@@ -217,15 +273,16 @@ here because each is a silent wrong number rather than a crash.
   `.splat` has degree 0 while a `.ply` has degree 3. Hardcoding it renders the
   wrong thing for one codec and produces a plausible number. Task 3 now asserts
   both degrees at the codec layer, so the trap is pinned one layer earlier.
-- **`PngCompression.compress` mutates the dictionary it is given.** It applies
-  `log_transform` to means and normalises quats in place. `PngCodec` must pass
-  copies, or the cloud is corrupted for every codec measured afterwards. This
-  is Task 4, which is next.
+- **RESOLVED in Task 4: the mutation trap was not real.** The spec warned that
+  `PngCompression.compress` mutates its input in place and that `PngCodec` must
+  pass copies. Measured false, see the Task 4 section above. The copies were
+  removed. Left here because the spec still carries the original claim.
 - **`PngCompression` crops to a square number of Gaussians.** Truck holds
   exactly 1,000,000, which is 1000 squared, so nothing is dropped now. From
   milestone 4 pruning will rarely produce a square count, so `curve.json`
   records the count actually encoded per codec rather than assuming it equals
-  the input.
+  the input. Note the crop keeps the **highest**-opacity splats: it sorts
+  descending and slices off the tail (`png_compression.py:135-140`).
 - **LPIPS downloads AlexNet weights on first use.** The first bench run is
   network-dependent in a project that is otherwise reproducible offline.
 
@@ -238,6 +295,13 @@ here because each is a silent wrong number rather than a crash.
   interactive shell, prints its banner and exits 0 having run no tests. It is
   indistinguishable from success by exit code alone. Run those lines through
   PowerShell and check that pytest output is actually present.
+- **`git commit -m "..."` silently commits nothing under PowerShell 5.1.** It
+  word-splits double quotes inside an argument to a native executable, so the
+  message is parsed as pathspecs. Use `git commit -F` with a message file. Same
+  family as the two traps above and the `python -c` one below.
+- **`PngCodec` has no test below 65,536 Gaussians and cannot have one.** Its
+  three GPU tests each cost a real encode, so the codec file's GPU tier runs
+  about 49 seconds. That is the floor, not slack to be optimised away.
 - **`Codec` has no production caller yet.** The protocol is enforced only by
   `tests/test_codecs.py`. Task 9's `run_bench` is duck-typed over
   `codec.name/encode/decode/size` rather than annotated against the protocol.
@@ -344,9 +408,29 @@ here because each is a silent wrong number rather than a crash.
   repeatable against an unchanged training run, and overwriting the manifest
   would lose that distinction.
 - **Citations into the plan carry a stable identifier beside the line number.**
-  The plan has been renumbered twice this milestone. A docstring citing
+  The plan has been renumbered three times this milestone, and three separate
+  line numbers supplied from memory have been off by one. A docstring citing
   `plan line 848` alone rots; citing
-  `test_render_uses_the_clouds_own_sh_degree (plan line 848)` survives.
+  `test_render_uses_the_clouds_own_sh_degree (plan line 848)` survives. The
+  same applies to citations into `.venv/Lib/site-packages/`, which rot on any
+  upgrade and which no test catches.
+- **`PngCodec` fixtures are 65,536 and 65,537, not 64 and 65.** Forced by the
+  upstream floor above. 65,536 is 256 squared so it needs no crop, and 65,537
+  crops exactly one, preserving the square and non-square pair the brief
+  intended. Reaching past `PngCompression`'s public API to force a smaller
+  cluster count was rejected: it would measure something that is not the
+  baseline, which defeats the purpose of having the codec.
+- **A tolerance is measured before it is written.** Task 4's round trip pins
+  means at `atol=1e-4` against a measured 2.12e-05 through the 16-bit path, and
+  scales at `atol=1e-2` against a measured 3.92e-03 through the 8-bit path. The
+  check that makes it real is the discriminating one: an all-zero decode
+  deviates 0.99999863, four orders above the allowance. A tolerance that passes
+  both the real decoder and a stub pins nothing.
+- **A commit message is the one artifact that cannot be corrected later.** Task
+  4's brief specified "copying its input because compress mutates in place",
+  false in both halves once measured. The implementer wrote an accurate subject
+  instead. A brief's literal text does not outrank a measurement that disproves
+  it, and unlike a docstring a pushed commit message cannot be amended.
 
 ### Milestone 1, still binding
 
@@ -445,14 +529,18 @@ found three defects that reading had not.
 
 ## Next Steps
 
-1. **(P0) Task 4 of the milestone 2 plan**: `PngCodec`. BASE `add184c`. Then
-   tasks 5 through 11, one per turn. Task 4 is the one where
-   `PngCompression.compress` mutates its input dictionary, so pass copies.
+1. **(P0) Task 5 of the milestone 2 plan**: cameras. Then tasks 6 through 11,
+   one per turn. Task 5 carries the `NORMALIZE_WORLD_SPACE` trap, which
+   silently evaluates against a differently scaled world and makes every metric
+   quietly wrong.
 2. **(P1) After Task 11**: whole-branch review on the most capable model, then
    `superpowers:finishing-a-development-branch`. Ved makes the merge call.
 3. **(P1) Ved to rule on the open strategic decision above**, ideally before
    milestone 3 starts, because a pre-declared stopping rule is what keeps the
    attempt from becoming a sunk-cost march.
+4. **(P1) Decide how the curve handles the 65,536 floor before milestone 4.**
+   Pruning below it leaves the comparison with no `PngCompression` point.
+   Nothing currently schedules this decision. See the Task 4 section above.
 4. **(P1) Decide whether phone captures gain a COLMAP stage**, and if so
    whether it lands before milestone 3 rather than around 6.5. This is the one
    spec success criterion nothing in milestones 1 to 8 currently schedules.
@@ -468,9 +556,10 @@ found three defects that reading had not.
 ## Context
 
 - **Branches**: `master` at `4528129`, pushed, carrying all of milestone 1.
-  `milestone-2-bench` at `add184c`, unpushed, carrying the milestone 2 spec
-  `0c04165`, the plan `d11e425`, and tasks 1 to 3. The spec and the plan exist
-  only on this branch, so a reader on `master` cannot see them yet.
+  `milestone-2-bench` pushed and tracking `origin/milestone-2-bench`, carrying
+  the milestone 2 spec `0c04165`, the plan `d11e425`, and tasks 1 to 4. The
+  spec and the plan exist only on this branch, so a reader on `master` cannot
+  see them yet.
   `milestone-1-scripted-pipeline` at `9f7f3a1`, kept as a record. There has
   never been a pull request. GitHub SSH and `gh` access work as user
   `VedJoshi`.
@@ -479,7 +568,7 @@ found three defects that reading had not.
   `docs/superpowers/plans/2026-09-01-milestone-2-bench.md` and its **Global
   Constraints** section, then the git-ignored ledger at
   `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md`. The ledger holds
-  the pre-flight scan table and Rulings 1 through 15, each with its cost if
+  the pre-flight scan table and Rulings 1 through 26, each with its cost if
   wrong. Trust the ledger and `git log` over anything remembered.
 - **The project spec** at
   `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`
@@ -510,17 +599,21 @@ found three defects that reading had not.
   cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
   ```
 
-  Expected at `add184c`: clean tree, `134 passed, 3 deselected` fast,
-  `137 passed` complete, `pinned` plus two `applied`.
+  Expected after this commit: clean tree, `135 passed, 6 deselected` fast,
+  `141 passed` complete, `pinned` plus two `applied`.
 
 - **Command caveats**: run `cmd /c` lines through PowerShell, never through Git
   Bash. Use `-o addopts=` for the complete suite; `-m gpu` runs only the
   GPU-marked tests. PowerShell strips quotes from arguments passed to
-  `python -c`, so run a scratch `.py` file instead of an inline snippet. Bash
-  heredocs mangle backslashes in Windows paths and fail outright on large
+  `python -c`, so run a scratch `.py` file instead of an inline snippet, and it
+  does the same to `git commit -m`, so use `git commit -F` with a message file.
+  Bash heredocs mangle backslashes in Windows paths and fail outright on large
   Markdown documents; use the file-writing tools for both.
 - **Open questions**: how phone captures get COLMAP poses; whether the project
-  pivots per the strategic decision above; whether decode time belongs on the
-  rate-distortion curve at all, recorded for now because it is nearly free to
-  measure and load time is a stated success criterion for the milestone 7
-  viewer.
+  pivots per the strategic decision above; how the curve handles the 65,536
+  floor once milestone 4 prunes below it; whether `PngCompression`'s
+  spherical-harmonic loss at real scale should be measured directly, since
+  nothing does and it is the field milestone 3 attacks; whether decode time
+  belongs on the rate-distortion curve at all, recorded for now because it is
+  nearly free to measure and load time is a stated success criterion for the
+  milestone 7 viewer.

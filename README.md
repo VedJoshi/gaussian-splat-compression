@@ -69,12 +69,19 @@ again as a whole before it was called done. The pipeline provides:
 - a run manifest recording the resolved config and its digest, library
   versions, the Git commit, timings, held-out metrics, and artifact checksums
 
-Milestone 2 is under way, 3 of 11 tasks complete. It adds
+Milestone 2 is under way, 4 of 11 tasks complete. It adds
 `src/splatpipe/bench/`, which measures rate-distortion points on held-out views
 for the raw `.ply`, the `.splat`, and gsplat's own `PngCompression`. It adds no
-compression of this project's own. The codec protocol and the `.ply` and
-`.splat` codecs exist; `PngCompression`, the cameras, the renderer, the metrics
-and the `bench` subcommand do not yet.
+compression of this project's own. The codec protocol and all three codecs
+exist; the cameras, the renderer, the metrics and the `bench` subcommand do
+not yet.
+
+One constraint found while wrapping `PngCompression` is worth stating here,
+because it shapes later milestones. It cannot encode fewer than 65,536
+Gaussians: its K-means step requests 65,536 clusters and needs at least as many
+input points, and the cluster count cannot be lowered through its public API.
+Contribution pruning in milestone 4 therefore has roughly 15x of headroom on
+the truck scene before the baseline codec stops being able to run at all.
 
 A direct probe run before the harness existed puts `PngCompression` at
 16,258,005 bytes on the truck scene, which is 14.52x against the raw `.ply`.
