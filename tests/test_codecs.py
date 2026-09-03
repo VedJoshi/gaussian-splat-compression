@@ -1,11 +1,18 @@
-"""Codec round trips. Pure numpy, no GPU, so this runs in the fast tier."""
+"""Codec round trips. The ply and splat cases are pure numpy and run in the fast
+tier; the png cases are GPU-marked and deselected there."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from splatpipe.bench.codecs import Codec, PlyCodec, SplatCodec, directory_size
+from splatpipe.bench.codecs import (
+    Codec,
+    PlyCodec,
+    PngCodec,
+    SplatCodec,
+    directory_size,
+)
 from splatpipe.gaussians import GaussianCloud
 
 
@@ -129,3 +136,68 @@ def test_directory_size_counts_every_file_recursively(tmp_path):
     (tmp_path / "a.bin").write_bytes(b"x" * 10)
     (tmp_path / "nested" / "b.bin").write_bytes(b"y" * 5)
     assert directory_size(tmp_path) == 15
+
+
+# PngCompression sorts with PLAS and clusters with torchpq, both of which need
+# CUDA. There is no CPU path, so these are GPU tier.
+pngmark = pytest.mark.gpu
+
+
+@pngmark
+def test_png_codec_round_trips_a_square_cloud(tmp_path):
+    """65536 is 256 squared, so nothing is cropped, and it is also the smallest
+    cloud PngCompression can encode at all.
+
+    Two upstream floors set that number, and anyone who shrinks this fixture
+    meets the lower one first. reorder_plas raises block_size to at least 16
+    (plas/core.py:358) and then takes sidelen // block_size, which is 0 for any
+    grid under 16 a side, so a cloud below 256 raises RuntimeError in
+    params_to_blocky (plas/core.py:194). Above that, _compress_kmeans asks
+    torchpq for 65536 clusters (png_compression.py:326) and
+    initialize_centroids draws them with np.random.choice(..., replace=False)
+    (torchpq/clustering/KMeans.py:272), which needs at least as many Gaussians
+    as clusters. compress builds its kwargs from n_sidelen and verbose alone
+    (png_compression.py:102), so the cluster count cannot be lowered through
+    the public API, and reaching past that API would measure something other
+    than the baseline. Measured on this build: 65535 raises ValueError, 65536
+    encodes and decodes in about 15 seconds.
+    """
+    cloud = a_cloud(65536)
+    codec = PngCodec()
+    codec.encode(cloud, tmp_path)
+    back = codec.decode(tmp_path)
+    assert len(back) == 65536
+    assert back.sh_degree == 3
+    assert codec.size(tmp_path) > 0
+
+
+@pngmark
+def test_png_codec_does_not_mutate_the_cloud_it_is_given(tmp_path):
+    """run_bench hands one cloud to every codec in turn, so encode must not
+    mutate it. This holds that contract rather than catching a live bug: the
+    .cuda() in encode allocates a separate device tensor, so compress cannot
+    reach the caller's numpy arrays whatever it does to the dict it is given.
+    Measured by deleting the six .copy() calls the brief specified, which left
+    all six arrays byte-identical. It fails only if encode grows a CPU path or
+    starts writing back into the cloud."""
+    cloud = a_cloud(65536)
+    before_means = cloud.means.copy()
+    before_quats = cloud.quats.copy()
+    PngCodec().encode(cloud, tmp_path)
+    np.testing.assert_array_equal(cloud.means, before_means)
+    np.testing.assert_array_equal(cloud.quats, before_quats)
+
+
+@pngmark
+def test_png_codec_reports_the_count_it_actually_encoded(tmp_path):
+    """65537 is not a square, so PngCompression drops the lowest-opacity splat.
+
+    It is one above the floor rather than one above any square, because cropping
+    to 65536 has to leave enough Gaussians to clear the k-means minimum that
+    test_png_codec_round_trips_a_square_cloud documents. 65 exercises the same
+    crop branch and then raises. Measured: this encode prints "Removed 1
+    Gaussians" and decodes 65536.
+    """
+    codec = PngCodec()
+    codec.encode(a_cloud(65537), tmp_path)
+    assert len(codec.decode(tmp_path)) == 65536
