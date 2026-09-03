@@ -138,6 +138,21 @@ def test_directory_size_counts_every_file_recursively(tmp_path):
     assert directory_size(tmp_path) == 15
 
 
+def test_png_codec_satisfies_the_protocol_and_names_itself_distinctly():
+    """PngCodec imports torch and gsplat inside its methods, so constructing one
+    and checking its shape needs no CUDA, which is why this is fast tier while
+    the three tests below are not.
+
+    The distinct name matters for the reason
+    test_each_codec_measures_only_its_own_directory gives: Task 9 hands each
+    codec `scratch / codec.name`, so a collision would make one codec's size()
+    count another codec's files.
+    """
+    assert isinstance(PngCodec(), Codec)
+    assert PngCodec().name == "png"
+    assert len({codec.name for codec in (PlyCodec(), SplatCodec(), PngCodec())}) == 3
+
+
 # PngCompression sorts with PLAS and clusters with torchpq, both of which need
 # CUDA. There is no CPU path, so these are GPU tier.
 pngmark = pytest.mark.gpu
@@ -148,27 +163,62 @@ def test_png_codec_round_trips_a_square_cloud(tmp_path):
     """65536 is 256 squared, so nothing is cropped, and it is also the smallest
     cloud PngCompression can encode at all.
 
-    Two upstream floors set that number, and anyone who shrinks this fixture
-    meets the lower one first. reorder_plas raises block_size to at least 16
-    (plas/core.py:358) and then takes sidelen // block_size, which is 0 for any
-    grid under 16 a side, so a cloud below 256 raises RuntimeError in
-    params_to_blocky (plas/core.py:194). Above that, _compress_kmeans asks
-    torchpq for 65536 clusters (png_compression.py:326) and
-    initialize_centroids draws them with np.random.choice(..., replace=False)
+    Two upstream floors set that number, and which one a reader meets depends on
+    how far they shrink it. Below 256 sorting fails first, because sort_splats
+    runs at png_compression.py:97 before the compress loop at :100: reorder_plas
+    raises block_size to at least min_block_size, which sort_with_plas defaults
+    to 16 (plas/core.py:490) and gsplat never overrides (sort.py:39), so
+    num_pixel_blocks = sidelen // block_size (plas/core.py:368) is 0 for a grid
+    under 16 a side and params_to_blocky raises (plas/core.py:194). Anywhere
+    from 256 to 65535 it is clustering that fails instead: _compress_kmeans asks
+    torchpq for 65536 clusters (png_compression.py:326) and initialize_centroids
+    draws them with np.random.choice(..., replace=False)
     (torchpq/clustering/KMeans.py:272), which needs at least as many Gaussians
     as clusters. compress builds its kwargs from n_sidelen and verbose alone
-    (png_compression.py:102), so the cluster count cannot be lowered through
-    the public API, and reaching past that API would measure something other
-    than the baseline. Measured on this build: 65535 raises ValueError, 65536
-    encodes and decodes in about 15 seconds.
+    (png_compression.py:102), so the cluster count cannot be lowered through the
+    public API, and reaching past that API would measure something other than
+    the baseline. Measured on this build: 65535 raises ValueError, 65536 encodes
+    and decodes in about 15 seconds.
+
+    Encoding into a subdirectory rather than into tmp_path is what covers the
+    mkdir in PngCodec.encode. gsplat creates a directory only in _compress_npz
+    (png_compression.py:304), which none of these six fields reach, so the png
+    writers at :174, :247 and :250 write into whatever encode made. Measured:
+    deleting that mkdir makes this test fail with FileNotFoundError.
+
+    The two value assertions are what stop a decode returning zeros of the right
+    shape from passing, since len, sh_degree and size are shapes and byte counts
+    and GaussianCloud.validate (gaussians.py:51) checks dtype and shape and
+    nothing about values. PLAS permutes rows, so each column is compared against
+    itself sorted, and quantisation is monotonic, so that comparison is exactly
+    the per-element error. Both tolerances are measured on this fixture rather
+    than derived: means deviates by at most 2.12e-05 through the 16-bit path and
+    scales by at most 3.92e-03 through the 8-bit path, which is half a step of
+    8-bit quantisation over the observed span. An all-zero decode deviates by
+    1.0 on means, four orders above the tolerance allowed here.
+
+    What this does not pin: quats, which compress renormalises before quantising
+    (png_compression.py:85) so they are not comparable to the raw input; sh0 and
+    opacities, which go through the same 8-bit writer as scales; and shN, which
+    deviates by only 3.17e-03 here because n_data equals n_clusters at this
+    size, so every Gaussian gets its own centroid. K-means is far lossier on a
+    real scene and this fixture cannot show that.
     """
     cloud = a_cloud(65536)
     codec = PngCodec()
-    codec.encode(cloud, tmp_path)
-    back = codec.decode(tmp_path)
+    directory = tmp_path / "png"
+    codec.encode(cloud, directory)
+    back = codec.decode(directory)
+    assert directory.is_dir()
     assert len(back) == 65536
     assert back.sh_degree == 3
-    assert codec.size(tmp_path) > 0
+    assert codec.size(directory) > 0
+    np.testing.assert_allclose(
+        np.sort(back.means, axis=0), np.sort(cloud.means, axis=0), rtol=0, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        np.sort(back.scales, axis=0), np.sort(cloud.scales, axis=0), rtol=0, atol=1e-2
+    )
 
 
 @pngmark
@@ -179,13 +229,17 @@ def test_png_codec_does_not_mutate_the_cloud_it_is_given(tmp_path):
     reach the caller's numpy arrays whatever it does to the dict it is given.
     Measured by deleting the six .copy() calls the brief specified, which left
     all six arrays byte-identical. It fails only if encode grows a CPU path or
-    starts writing back into the cloud."""
+    starts writing back into the cloud.
+
+    All six arrays are checked because encode hands all six to compress, and
+    checking two of them is the defect the Task 3 review found in
+    test_ply_codec_is_lossless."""
+    names = ("means", "scales", "quats", "opacities", "sh0", "shN")
     cloud = a_cloud(65536)
-    before_means = cloud.means.copy()
-    before_quats = cloud.quats.copy()
+    before = {name: getattr(cloud, name).copy() for name in names}
     PngCodec().encode(cloud, tmp_path)
-    np.testing.assert_array_equal(cloud.means, before_means)
-    np.testing.assert_array_equal(cloud.quats, before_quats)
+    for name in names:
+        np.testing.assert_array_equal(getattr(cloud, name), before[name], err_msg=name)
 
 
 @pngmark
