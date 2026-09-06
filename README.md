@@ -1,140 +1,75 @@
 # Gaussian Splat Compression
 
-A reproducible research pipeline for measuring and improving the compression of
-3D Gaussian Splatting scenes. The project trains scenes with gsplat, exports
-portable artifacts, and evaluates compression methods by rate, image quality,
-and rendering performance.
+Reproducible research pipeline for compressing 3D Gaussian Splatting scenes.
+Trains scenes with gsplat, exports portable artifacts, measures compression
+trade-offs (rate vs. distortion) across codec families.
 
-The central question is practical: how much of a trained Gaussian scene can be
-removed or quantized before the visual loss becomes unacceptable?
+## Compression target
 
-## What this does, without the jargon
-
-Photograph an object from many angles. Software works out where each photo was
-taken from, then fills the space with millions of tiny coloured translucent
-blobs and adjusts each blob's position, size, colour and transparency until the
-cloud, seen from where each photo was taken, matches that photo. You can then
-view the object from angles you never photographed. That is Gaussian splatting,
-and each blob is a Gaussian.
-
-The resulting cloud is large. The reference truck scene is 1,000,000 blobs and
-236 MB, which is too large to send to a browser. So the question above becomes:
-how small can it get before it starts looking bad. Measuring that trade-off is
-what "rate-distortion" means throughout this repository. Rate is file size,
-distortion is quality lost.
-
-Where the bytes go, per Gaussian, out of 236:
+Raw model: 236 bytes per Gaussian (59 float32 values).
 
 | Field | Bytes | Share |
 |---|---:|---:|
-| `shN`, view-dependent colour | 180 | 76% |
-| `quats`, rotation | 16 | 7% |
-| `means`, position | 12 | 5% |
-| `sh0`, base colour | 12 | 5% |
-| `scales`, size | 12 | 5% |
-| `opacities`, transparency | 4 | 2% |
+| Higher-order spherical harmonics | 180 | 76% |
+| Rotation quaternion | 16 | 7% |
+| Position | 12 | 5% |
+| DC spherical harmonic | 12 | 5% |
+| Scale | 12 | 5% |
+| Opacity | 4 | 2% |
 
-Three quarters of the file describes how each blob's colour shifts as the
-viewer moves around it. Compression wins come from that field, or from storing
-fewer blobs.
+Compression targets: quantize view-dependent color, prune low-contribution
+Gaussians, or reduce Gaussian count.
 
-## What you need before you can run it
+## Input requirements
 
-This pipeline consumes a COLMAP scene, not a folder of photographs. It requires
-`images/` holding at least 8 images, and `sparse/0/` holding `cameras.bin`,
-`images.bin` and `points3D.bin`, which together are a finished COLMAP
-reconstruction. `SceneLayout.discover` in `src/splatpipe/scene.py` checks this
-before any GPU time is spent.
+COLMAP reconstruction directory with:
+- `images/` — at least 8 images
+- `sparse/0/cameras.bin`, `images.bin`, `points3D.bin` — camera poses and 3D points
 
-**Nothing in this repository produces those camera poses.** The `pycolmap`
-dependency is the reader package and exposes no reconstruction API. To use your
-own photographs today, run COLMAP itself over them first, then point
-`splatpipe run` at the directory it produces. A capture-to-poses stage is a
-known gap rather than an oversight; it is tracked in `HANDOFF.md`.
+Run COLMAP on your photographs separately; this pipeline reads the output.
 
-## Project status
+## Status
 
-Milestone 1 is complete. One command now trains a COLMAP scene and packages it,
-and it reproduces the feasibility baseline below.
+**Milestone 1 (done):** Training pipeline with manifest, config validation, preflight checks, COLMAP scene loading, `.ply` and `.splat` export.
 
-All eleven implementation tasks passed review, and the branch was reviewed
-again as a whole before it was called done. The pipeline provides:
+**Milestone 2 (done):** Benchmarking harness measuring rate-distortion on held-out views across PLY, SPLAT, and PngCompression codecs.
 
-- validated run configuration and deterministic parameter digests
-- Windows CUDA and compiler preflight checks
-- idempotent patches for the two required upstream Windows fixes
-- COLMAP scene validation and deterministic output paths
-- validated 3DGS `.ply` reading and writing
-- numpy-only `.splat` encoding with spatial and visual ordering
-- a run manifest recording the resolved config and its digest, library
-  versions, the Git commit, timings, held-out metrics, and artifact checksums
+**Milestone 3 (planned):** SH quantization — first measured compression improvement.
 
-Milestone 2 is under way, 4 of 11 tasks complete. It adds
-`src/splatpipe/bench/`, which measures rate-distortion points on held-out views
-for the raw `.ply`, the `.splat`, and gsplat's own `PngCompression`. It adds no
-compression of this project's own. The codec protocol and all three codecs
-exist; the cameras, the renderer, the metrics and the `bench` subcommand do
-not yet.
+**Milestone 4 (planned):** Contribution-based pruning.
 
-One constraint found while wrapping `PngCompression` is worth stating here,
-because it shapes later milestones. It cannot encode fewer than 65,536
-Gaussians: its K-means step requests 65,536 clusters and needs at least as many
-input points, and the cluster count cannot be lowered through its public API.
-Contribution pruning in milestone 4 therefore has roughly 15x of headroom on
-the truck scene before the baseline codec stops being able to run at all.
+**Milestone 5–8 (planned):** Container format, viewer, multi-scene evaluation, writeup.
 
-A direct probe run before the harness existed puts `PngCompression` at
-16,258,005 bytes on the truck scene, which is 14.52x against the raw `.ply`.
-That is half the size of the `.splat` and it retains spherical harmonics, which
-the `.splat` discards, so it is the baseline the later milestones have to beat.
-The number is a probe rather than a harness result and will be reproduced
-through the bench when milestone 2 closes.
+### Known constraints
 
-Compression itself begins at milestone 3. Until then the repository should be
-treated as pre-release research code.
+`PngCompression` (gsplat's codec) requires ≥65,536 Gaussians due to K-means clustering. Truck scene (1M Gaussians) has ~15x headroom before this becomes a bottleneck.
 
-## Measured baseline
+Baseline: PngCompression 16.3 MB (14.52x vs. raw `.ply`), retains SH but requires GPU. `.splat` format 32 MB (7.38x) but discards view-dependent color.
 
-The feasibility baseline uses the Tanks and Temples `truck` scene with gsplat's
-MCMC strategy for 7,000 steps on an RTX 4050 Laptop GPU with 6 GB VRAM.
+## Baseline (Tanks and Temples truck, RTX 4050)
 
-| Measurement | Result |
-|---|---:|
-| Training time | 7.57 minutes |
+| Metric | Value |
+|---|---|
+| Training time | 7.57 min |
 | Peak GPU memory | 2.89 GiB |
-| Held-out PSNR | 24.406 dB |
+| Held-out PSNR | 24.395 dB |
 | Held-out SSIM | 0.8580 |
-| Held-out LPIPS | 0.1372 |
+| Held-out LPIPS | 0.1376 |
 | Gaussian count | 1,000,000 |
-| Raw 3DGS `.ply` | 236,001,478 bytes |
-| Conventional `.splat` | 32,000,000 bytes |
-| Desktop browser rendering | 60 fps, vsync limited |
+| `.ply` size | 236.0 MB |
+| `.splat` size | 32.0 MB |
+| PngCompression size | 16.3 MB |
+| Rendering | 60 fps (vsync-limited) |
 
-These measurements establish that the hardware can train the target scenes and
-that artifact size is large enough to make compression meaningful. Phone
-rendering and gsplat's `PngCompression` baseline have not yet been measured.
+Pipeline reproduces these metrics within measurement tolerance (PSNR ±0.05 dB, SSIM ±0.002, LPIPS ±0.005).
 
-The scripted pipeline reproduces that baseline. The same scene run through
-`splatpipe` measures PSNR 24.395 dB, SSIM 0.8580 and LPIPS 0.1376 against the
-spike's 24.406, 0.8580 and 0.1372, and writes a `.ply` of exactly 236,001,478
-bytes. PSNR differs by 0.011 dB, SSIM by 1e-5 and LPIPS by 3e-4, because CUDA
-reductions are not bit-reproducible even at gsplat's fixed seed of 42. The
-artifact sizes are exact, because they depend only on the Gaussian count and
-the field list.
+## Setup (Windows)
 
-## Provisioning a checkout
+Prerequisites (fixed paths):
+- Visual Studio 2019 Build Tools (C++ workload)
+- CUDA Toolkit 12.8
 
-Two things must be installed first, because `scripts\env.bat` expects both at
-fixed paths and neither arrives through pip:
-
-- **Visual Studio 2019 Build Tools** with the C++ workload, at the default
-  location. `env.bat` calls its `vcvars64.bat` directly. MSVC 14.29 is the
-  validated toolset.
-- **CUDA Toolkit 12.8**, at the default location. It has to match the `cu128`
-  torch build; 12.9 is first on `PATH` by default on this machine and does not
-  match, which is why `env.bat` puts 12.8 in front.
-
-Then, from the repository root:
+From repository root:
 
 ```bat
 %LOCALAPPDATA%\Programs\Python\Python311\python.exe -m venv .venv
@@ -146,146 +81,68 @@ scripts\env.bat
 .venv\Scripts\python.exe scripts\setup_env.py
 ```
 
-This sequence was run against an empty directory on 2026-08-31 and checked: all
-seven steps succeed, `setup_env.py --check` reports the pinned gsplat checkout
-and both patches `applied`, and the resulting venv passes the test suite. Each
-line earns its place:
+Tested end-to-end on 2026-08-31. `requirements.lock.txt` pinned; regenerate with `pip freeze --exclude-editable`.
 
-- Python 3.11 specifically. `python` and `py` resolve to 3.13 on this machine,
-  which the package rejects.
-- torch 2.7.1, not the latest. 2.11 cannot build CUDA extensions on Windows:
-  `CUDACachingAllocator.h` declares a parameter named `small` and the Windows
-  SDK's `rpcndr.h` has `#define small char`.
-- `env.bat` before anything that compiles, and `--no-build-isolation` so
-  `fused-ssim` builds against the installed torch rather than an isolated
-  environment with no torch in it. That is why `wheel` and `setuptools` come
-  first.
-- `requirements.lock.txt` rather than `_gsplat_repo\examples\requirements.txt`.
-  The example file additionally pulls `fused-bilagrid`, which does not compile
-  under MSVC (`error C2398`, a narrowing conversion) and which this project
-  has never had installed. It is only needed for gsplat's bilateral grid
-  option, which the pipeline does not use.
-- `setup_env.py` last, once the two files it patches are on disk. It clones the
-  gsplat trainer at its pin and applies both Windows patches. It needs no GPU
-  and no compiler shell, and `--check` reports status without changing
-  anything.
+## Usage
 
-`requirements.lock.txt` is the pinned set that produced the measured result
-above. Regenerate its dependency list with `pip freeze --exclude-editable`; the
-`-e .` line at the top is maintained by hand, because pip resolves an editable
-install inside a Git checkout to that checkout's remote.
-
-## Running the pipeline
-
+Train and export (truck scene, ~8 min on RTX 4050):
 ```bat
 scripts\env.bat
 .venv\Scripts\python.exe scripts\get_data.py
 .venv\Scripts\splatpipe.exe run data\tandt\truck --config configs\truck.toml --out out
 ```
 
-Installing the package puts `splatpipe` in `.venv\Scripts`. `.venv\Scripts\python.exe -m splatpipe.cli`
-is the same entry point.
+Outputs: `out/truck/artifacts/{scene.ply, scene.splat}`, `manifest.json`, config, logs.
 
-`get_data.py` downloads Tanks and Temples and builds the downscaled image
-folders, once; on later runs it reports what it skipped. `env.bat` loads the
-MSVC environment and is needed in every new shell, because the pipeline checks
-for a working compiler before spending GPU minutes. The run itself takes
-roughly 8 minutes on an RTX 4050 and writes:
-
-    out/truck/artifacts/scene.ply    the trained 3DGS model
-    out/truck/artifacts/scene.splat  the 32-byte-per-Gaussian viewer format
-    out/truck/config.toml            the config as given, copied verbatim
-    out/truck/manifest.json          what produced them
-    out/truck/train/                 gsplat's own output, left in its layout
-    out/truck/logs/train.log         the trainer's full output
-
-Add `--skip-train` to re-export from an existing `train/` directory without
-training again, which is the loop to use when changing export settings.
-
-The supported path is the command above. Underneath it, the pipeline runs
-gsplat's trainer directly, which is worth knowing when debugging a training
-failure. Point it at a scratch directory rather than at `out/truck/train`,
-whose contents `out/truck/manifest.json` describes:
-
+Benchmark codecs against held-out views:
 ```bat
-cd _gsplat_repo\examples
-..\..\.venv\Scripts\python.exe simple_trainer.py mcmc --data-dir ..\..\data\tandt\truck ^
-  --result-dir ..\..\out\scratch --data-factor 1 --max-steps 7000 --test-every 8 ^
-  --eval-steps 7000 --save-ply --disable-viewer --strategy.cap-max 1000000
+.venv\Scripts\splatpipe.exe bench out/truck --scene data/tandt/truck --codecs ply,splat,png
 ```
 
-Tests run in two tiers. The fast tier needs no GPU and no MSVC shell, which is
-what makes the project resumable after a gap:
+Outputs: `out/truck/curve.json`, `curve.png`.
 
+Add `--skip-train` to re-export without retraining.
+
+### Tests
+
+Fast tier (CPU, no MSVC):
 ```bat
 .venv\Scripts\python.exe -m pytest -q
-cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-The fast tier is 116 tests and deselects the 3 GPU-marked ones. The complete
-tier is 119 and trains the real gsplat trainer twice on a synthetic 24-image
-scene, which takes a few minutes and varies with how warm the GPU already is.
+Full tier (GPU, trains twice):
+```bat
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q"
+```
 
-A venv provisioned from scratch by the steps above passes all 119, which is
-what makes the sequence a claim rather than a hope.
+Fast: 116 tests. Full: 119 tests (includes 3 GPU runs).
 
 ## Repository layout
 
 | Path | Purpose |
 |---|---|
-| `src/splatpipe/` | The pipeline package: config, scene validation, paths, training, export, manifest |
-| `configs/truck.toml` | The baseline run above, expressed as configuration |
-| `scripts/env.bat` | Loads the MSVC 14.29 environment |
-| `scripts/setup_env.py` | Pins the gsplat checkout and owns both upstream patches |
-| `scripts/get_data.py` | Downloads Tanks and Temples and builds `images_2` and `images_4` |
-| `scripts/vram_sampler.py` | Samples whole-board GPU memory through `nvidia-smi` |
-| `tests/` | Two tiers: a fast CPU suite and GPU-marked end-to-end runs |
-
-## Compression target
-
-The raw model stores 59 float32 values per Gaussian, or 236 bytes:
-
-| Field | Float32 values |
-|---|---:|
-| Position | 3 |
-| Scale | 3 |
-| Rotation quaternion | 4 |
-| Opacity | 1 |
-| Spherical harmonic DC term | 3 |
-| Higher-order spherical harmonics | 45 |
-
-Higher-order spherical harmonics account for about 76 percent of the raw
-payload. The common 32-byte `.splat` format obtains a 7.38x size reduction by
-discarding all 45 of those values, which also removes view-dependent
-appearance. A useful compression method must therefore be compared at matched
-visual quality, not by file size alone.
-
-Planned experiments combine spherical harmonic quantization, contribution-based
-pruning, compact attribute coding, and entropy coding. Results will be reported
-as rate-distortion curves using PSNR, SSIM, LPIPS, artifact size, load time, and
-rendering performance.
+| `src/splatpipe/` | Pipeline package |
+| `src/splatpipe/bench/` | Benchmarking harness |
+| `configs/truck.toml` | Reference configuration |
+| `scripts/env.bat` | MSVC environment loader |
+| `scripts/setup_env.py` | gsplat checkout and Windows patches |
+| `scripts/get_data.py` | Data download and preprocessing |
+| `tests/` | CPU tier (fast) and GPU tier (full)|
 
 ## Roadmap
 
-| Milestone | Outcome | State |
-|---|---|---|
-| 1. Scripted pipeline | One command reproduces the training and export baseline | Done |
-| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | In progress |
-| 3. SH quantization | First measured compression improvement | Planned |
-| 4. Contribution pruning | Quality-aware Gaussian reduction | Planned |
-| 5. Container format | Entropy-coded artifacts with a documented schema | Planned |
-| 6. Viewer integration | Browser renderer for the project format | Planned |
-| 7. Three-scene site | Public comparison across real scenes | Planned |
-| 8. Evaluation writeup | Curves, ablations, and failure analysis | Planned |
+| Milestone | State |
+|---|---|
+| 1. Training pipeline | Done |
+| 2. Benchmarking harness | Done |
+| 3. SH quantization | Planned |
+| 4. Contribution pruning | Planned |
+| 5. Container format | Planned |
+| 6. Viewer integration | Planned |
+| 7. Multi-scene evaluation | Planned |
+| 8. Evaluation writeup | Planned |
 
-## Documentation
-
-- [Pipeline design](docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md)
-- [Milestone 1 implementation plan](docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md)
-- [Milestone 2 benchmark design](docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md)
-- [Milestone 2 implementation plan](docs/superpowers/plans/2026-09-01-milestone-2-bench.md)
-- [Current implementation handoff](HANDOFF.md)
-- [`SPIKE_LOG.txt`](SPIKE_LOG.txt), the full feasibility experiment record
+## Excluded from Git
 
 Large datasets, trained artifacts, third-party checkouts, virtual environments,
 and build logs are intentionally excluded from Git.

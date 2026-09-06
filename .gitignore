@@ -25,6 +25,14 @@ _dl_pretrained.py
 # Subagent-driven development scratch
 .superpowers/
 
+# Local development and learning docs
+AGENTS.md
+HANDOFF.md
+LEARNING.md
+RESUME_PROMPT.md
+REVIEWER_AGENT.md
+docs/superpowers/
+
 # Packaging and test artifacts
 *.egg-info/
 .pytest_cache/
