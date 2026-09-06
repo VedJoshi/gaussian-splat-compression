@@ -94,9 +94,32 @@ def main(argv: list[str] | None = None) -> int:
         help="reuse an existing train/ directory instead of training again",
     )
 
+    bench = subparsers.add_parser("bench", help="measure codecs against a finished run")
+    bench.add_argument("run_dir", type=Path, help="an existing splatpipe run directory")
+    bench.add_argument("--scene", type=Path, required=True, help="the COLMAP scene it was trained on")
+    bench.add_argument("--data-factor", type=int, default=1)
+    bench.add_argument("--test-every", type=int, default=8)
+    bench.add_argument(
+        "--codecs",
+        default="ply,splat,png",
+        help="comma-separated codec names in measurement order. The first is the anchor.",
+    )
+
     args = parser.parse_args(argv)
     try:
-        run_pipeline(args.scene, RunConfig.from_toml(args.config), args.out, args.skip_train)
+        if args.command == "run":
+            run_pipeline(args.scene, RunConfig.from_toml(args.config), args.out, args.skip_train)
+        else:
+            from splatpipe.bench.codecs import build_codecs
+            from splatpipe.bench.run import run_bench
+
+            run_bench(
+                args.run_dir,
+                args.scene,
+                build_codecs(args.codecs),
+                data_factor=args.data_factor,
+                test_every=args.test_every,
+            )
     except SplatpipeError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

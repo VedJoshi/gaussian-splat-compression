@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from splatpipe.errors import ConfigError
 from splatpipe.formats.splat import decode_splat, encode_splat
 from splatpipe.gaussians import GaussianCloud, read_ply, write_ply
 
@@ -145,3 +146,28 @@ class PngCodec:
 
     def size(self, directory: Path) -> int:
         return directory_size(directory)
+
+
+CODECS = {
+    "ply": PlyCodec,
+    "splat": SplatCodec,
+    "png": PngCodec,
+}
+
+
+def build_codecs(names: str) -> list:
+    """Build codecs from a comma-separated name list, preserving order.
+
+    Order is significant: the first codec is the anchor whose size is the
+    denominator of every ratio, so it should be a lossless one.
+    """
+    selected = [name.strip() for name in names.split(",") if name.strip()]
+    if not selected:
+        raise ConfigError("no codecs selected")
+    unknown = [name for name in selected if name not in CODECS]
+    if unknown:
+        raise ConfigError(
+            f"unknown codec(s) {', '.join(unknown)}. "
+            f"Known codecs are: {', '.join(sorted(CODECS))}"
+        )
+    return [CODECS[name]() for name in selected]
