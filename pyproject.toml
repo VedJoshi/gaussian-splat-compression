@@ -14,6 +14,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pillow"]
+# cupy 14 and above requires numpy>=2.0, which conflicts with the numpy<2.0.0
+# pin above. torchpq imports cupy at runtime without declaring it. plas has no
+# PyPI release. See docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md
+bench = ["cupy-cuda12x==13.6.0", "torchpq", "torchmetrics>=1.9", "matplotlib"]
 
 [project.scripts]
 splatpipe = "splatpipe.cli:main"

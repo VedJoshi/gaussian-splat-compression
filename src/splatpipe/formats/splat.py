@@ -112,3 +112,61 @@ def encode_splat(cloud: GaussianCloud, order: str = "morton") -> bytes:
     buffer[:, 24:28] = color
     buffer[:, 28:32] = rotation
     return buffer.tobytes()
+
+
+# The midpoint of the quantisation bucket an 8-bit alpha came from. Inverting
+# logit at the bucket edge diverges; the midpoint is the best estimate the
+# stored byte supports. Bounds the recovered logit at about plus or minus 6.23.
+_ALPHA_MIN = 0.5 / 255
+_ALPHA_MAX = 254.5 / 255
+# exp() of a sufficiently negative log scale underflows to zero, and log(0) is
+# negative infinity. The smallest positive normal float32 bounds it at -87.34.
+_FLOAT32_TINY = float(np.finfo(np.float32).tiny)
+
+
+def decode_splat(data: bytes) -> GaussianCloud:
+    """Decode 32-byte .splat records back into a GaussianCloud.
+
+    Lossy by construction, and deliberately so: the format quantises colour and
+    rotation to 8 bits and discards f_rest entirely. The returned cloud has
+    sh_degree 0. Nothing here special-cases the loss away, because the
+    rate-distortion point has to reflect what the format actually costs.
+    """
+    if len(data) % BYTES_PER_GAUSSIAN:
+        raise ArtifactError(
+            f"buffer of {len(data)} bytes is not a multiple of {BYTES_PER_GAUSSIAN}"
+        )
+    n = len(data) // BYTES_PER_GAUSSIAN
+    if n == 0:
+        raise ArtifactError("buffer holds no gaussians")
+
+    buffer = np.frombuffer(data, dtype=np.uint8).reshape(n, BYTES_PER_GAUSSIAN)
+
+    means = buffer[:, 0:12].tobytes()
+    means = np.frombuffer(means, dtype="<f4").reshape(n, 3).astype(np.float32)
+
+    stored = np.frombuffer(buffer[:, 12:24].tobytes(), dtype="<f4").reshape(n, 3)
+    scales = np.log(np.maximum(stored, _FLOAT32_TINY)).astype(np.float32)
+
+    color = buffer[:, 24:28].astype(np.float64) / 255.0
+    sh0 = ((color[:, :3] - 0.5) / SH_C0).astype(np.float32)
+    alpha = np.clip(color[:, 3], _ALPHA_MIN, _ALPHA_MAX)
+    opacities = np.log(alpha / (1.0 - alpha)).astype(np.float32)
+
+    quats = (buffer[:, 28:32].astype(np.float64) - 128.0) / 128.0
+    norms = np.linalg.norm(quats, axis=1, keepdims=True)
+    if np.any(norms == 0):
+        row = int(np.flatnonzero(norms.ravel() == 0)[0])
+        raise ArtifactError(f"quats decodes to a zero-length quaternion at row {row}")
+    quats = (quats / norms).astype(np.float32)
+
+    cloud = GaussianCloud(
+        means=means,
+        scales=scales,
+        quats=quats,
+        opacities=opacities,
+        sh0=sh0,
+        shN=np.zeros((n, 0, 3), dtype=np.float32),
+    )
+    cloud.validate()
+    return cloud

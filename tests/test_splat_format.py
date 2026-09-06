@@ -1,4 +1,5 @@
 import warnings
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -6,11 +7,12 @@ import pytest
 from splatpipe.errors import ArtifactError, ConfigError
 from splatpipe.formats.splat import (
     BYTES_PER_GAUSSIAN,
+    decode_splat,
     encode_splat,
     morton_order,
     size_opacity_order,
 )
-from splatpipe.gaussians import GaussianCloud
+from splatpipe.gaussians import GaussianCloud, SH_C0
 
 RNG = np.random.default_rng(1)
 
@@ -23,6 +25,27 @@ def make_cloud(n=64, k=15):
         opacities=RNG.standard_normal(n).astype(np.float32),
         sh0=RNG.standard_normal((n, 3)).astype(np.float32),
         shN=RNG.standard_normal((n, k, 3)).astype(np.float32),
+    )
+
+
+def a_representable_cloud(n: int = 64) -> GaussianCloud:
+    """A cloud the .splat format can actually carry.
+
+    The module's existing make_cloud draws sh0 from a standard normal, but the
+    format only represents sh0 in about [-1.77, 1.77]: rgb is sh0 * SH_C0 + 0.5
+    and the encoder clips outside [0, 1]. Asserting round-trip fidelity on
+    values the format cannot represent would test nothing, so the tolerance
+    assertions below use this instead. Saturation itself is already covered by
+    the encoder's own tests.
+    """
+    rng = np.random.default_rng(0)
+    return GaussianCloud(
+        means=rng.uniform(-10, 10, (n, 3)).astype(np.float32),
+        scales=rng.uniform(-3, -1, (n, 3)).astype(np.float32),
+        quats=rng.standard_normal((n, 4)).astype(np.float32),
+        opacities=rng.uniform(-4, 4, n).astype(np.float32),
+        sh0=rng.uniform(-1.5, 1.5, (n, 3)).astype(np.float32),
+        shN=rng.standard_normal((n, 15, 3)).astype(np.float32),
     )
 
 
@@ -228,3 +251,91 @@ def test_an_empty_cloud_is_refused_by_every_ordering():
     for order in ("morton", "size_opacity", "none"):
         with pytest.raises(ArtifactError, match="cloud is empty"):
             encode_splat(empty, order=order)
+
+
+def test_decode_recovers_positions_exactly():
+    """Positions are stored as float32 and must survive the round trip bit for bit."""
+    cloud = make_cloud(n=16)
+    back = decode_splat(encode_splat(cloud, order="none"))
+    np.testing.assert_array_equal(back.means, cloud.means)
+
+
+def test_decode_discards_higher_order_harmonics():
+    cloud = make_cloud(n=16)
+    back = decode_splat(encode_splat(cloud, order="none"))
+    assert back.shN.shape == (16, 0, 3)
+    assert back.sh_degree == 0
+
+
+def test_decode_round_trips_scales_and_colours_within_quantisation_error():
+    cloud = a_representable_cloud(64)
+    back = decode_splat(encode_splat(cloud, order="none"))
+    # Scales survive as exp then log through float32, so only rounding is lost.
+    np.testing.assert_allclose(back.scales, cloud.scales, atol=1e-5)
+    # Colours are quantised to 8 bits. One step of sh0 is 1/255 scaled by 1/SH_C0.
+    np.testing.assert_allclose(back.sh0, cloud.sh0, atol=(1.0 / 255) / SH_C0)
+
+
+def test_decode_clamps_saturated_opacity_instead_of_returning_infinity():
+    """alpha == 255 inverts to logit(1) == inf without a clamp.
+
+    The encoder reaches this on real data: it clips to [0, 255] and casts, so a
+    high enough logit saturates. The clamp uses the midpoint of the quantisation
+    bucket, which is the best estimate available rather than an arbitrary guard.
+    """
+    cloud = replace(make_cloud(n=4), opacities=np.full(4, 40.0, dtype=np.float32))
+    back = decode_splat(encode_splat(cloud, order="none"))
+    assert np.isfinite(back.opacities).all()
+    np.testing.assert_allclose(back.opacities, 6.2324480, atol=1e-4)
+
+
+def test_decode_clamps_underflowing_scale_instead_of_returning_negative_infinity():
+    """A very negative log scale exponentiates to zero, and log(0) is -inf."""
+    cloud = replace(make_cloud(n=4), scales=np.full((4, 3), -200.0, dtype=np.float32))
+    back = decode_splat(encode_splat(cloud, order="none"))
+    assert np.isfinite(back.scales).all()
+    np.testing.assert_allclose(back.scales, -87.33655, atol=1e-3)
+
+
+def test_decode_rejects_a_truncated_buffer():
+    with pytest.raises(ArtifactError, match="not a multiple"):
+        decode_splat(b"\x00" * 33)
+
+
+def test_decode_rejects_an_empty_buffer():
+    with pytest.raises(ArtifactError, match="no gaussians"):
+        decode_splat(b"")
+
+
+def test_decode_round_trips_quaternions_within_quantisation_error():
+    """Nothing else in this file reads back.quats numerically.
+
+    What this pins is the byte slice: reading the colour bytes or a window
+    shifted by one leaves all but one of the 256 components outside the
+    tolerance, with a worst component error above 1.4. It pins the
+    128 offset in one direction only. Measured on this fixture, an offset of 129
+    gives 0.0202 and fails, while an offset of 127 gives 0.0078 and passes,
+    because encode_splat truncates rather than rounds when it casts to uint8, so
+    127 and 128 land in the same quantisation bucket. Tightening the tolerance
+    cannot separate them. It also does not pin the divisor, because
+    (stored - offset) / d followed by normalisation cancels d entirely.
+
+    The correct decoder's worst component error is 0.0105, measured over 20,000
+    gaussians, against the 0.0156 asserted here.
+    """
+    cloud = a_representable_cloud(64)
+    back = decode_splat(encode_splat(cloud, order="none"))
+    expected = cloud.quats / np.linalg.norm(cloud.quats, axis=1, keepdims=True)
+    np.testing.assert_allclose(back.quats, expected, atol=2.0 / 128)
+
+
+def test_decode_rejects_a_zero_length_quaternion():
+    """Unreachable through encode_splat, which always normalises first.
+
+    decode_splat is public and .splat is an interchange format, so it can be
+    handed bytes this project did not write.
+    """
+    data = bytearray(encode_splat(make_cloud(n=4), order="none"))
+    data[28:32] = b"\x80\x80\x80\x80"
+    with pytest.raises(ArtifactError, match="zero-length quaternion"):
+        decode_splat(bytes(data))

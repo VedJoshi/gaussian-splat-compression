@@ -11,39 +11,66 @@ You are continuing work on a computer vision portfolio project. Read this whole 
 
 A 3D Gaussian Splatting pipeline: capture a scene, train a splat model, compress it, and deploy it to a browser. The portfolio claim is "I built and deployed this, and the hard part was the compression, which I implemented from the literature and benchmarked." Not "I trained a model."
 
-The work is split into eight milestones. **Milestone 1 is complete and merged into `master`.** It turned an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`. The next work is planning milestone 2; nothing from milestone 1 is in flight.
+The work is split into eight milestones. **Milestone 1 is complete and merged into `master`.** It turned an earlier throwaway spike into a reproducible pipeline: `splatpipe run <scene-dir> --config <cfg> --out <dir>`. **Milestone 2 is under way on branch `milestone-2-bench`: 4 of its 11 tasks are done.** It builds `src/splatpipe/bench/` and measures the rate-distortion baselines this project has to beat.
 
-Read these three files first, in this order. They are the authority and they disagree with nothing:
+Read these four files first, in this order. They are the authority and they disagree with nothing:
 
 1. `HANDOFF.md`: current state, what is done, what is deferred, and why.
-2. `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`: the design the plan argues from. The spec is binding when anything conflicts.
-3. `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`: 11 tasks, 76 steps, with complete code for each. Read its **Global Constraints** section carefully; every task inherits it.
+2. `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`: the project design. Binding above every milestone document.
+3. `docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md`: the milestone 2 design the current plan argues from. It records the probe measurements, the dependency traps, the module table, and the codec protocol.
+4. `docs/superpowers/plans/2026-09-01-milestone-2-bench.md`: 11 tasks with complete code for each. Read its **Global Constraints** section carefully; every task inherits it.
 
-Then read the ledger at `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. It is the authoritative record of what is complete and every ruling made so far. **Trust the ledger and `git log` over anything you think you remember.**
+Then read the ledger at `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md`. It is the authoritative record of what is complete and every ruling made so far, and it holds the pre-flight scan table plus Rulings 1 through 26, each with its cost if wrong. **Trust the ledger and `git log` over anything you think you remember.**
+
+The milestone 1 plan and ledger are still on disk at
+`docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md` and
+`.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`. Read
+them when you need the history behind a milestone 1 decision, not to find out
+what to do next.
 
 ## Where things stand
 
-Work on `master`, which is at `9f7f3a1` and carries all of milestone 1. There is no `main` branch and there never was a pull request. `milestone-1-scripted-pipeline` still exists and points at the same commit; it is kept as the record, not as a place to add work.
+**Work on `milestone-2-bench`, which is pushed and tracks `origin/milestone-2-bench`.** It forked from `master` at `4528129`, which carries all of milestone 1 and is unchanged. The milestone 2 spec and plan are on this branch only, so they are not visible from `master`. Nothing has been merged. There is no `main` branch and there has never been a pull request. `milestone-1-scripted-pipeline` still exists at `9f7f3a1`; it is kept as the record, not as a place to add work.
 
-**All 11 tasks are implemented and reviewed, the branch was reviewed again as a whole, and it was merged into `master` on 2026-09-01 as a fast-forward. Milestone 1 is done and closed.** No task is in flight. Start a fresh branch for milestone 2 rather than continuing on the milestone 1 branch.
+**Tasks 1, 2, 3 and 4 of milestone 2 are complete and reviewed. Task 5 is next and has not started.** Task 5 is the cameras: it creates `src/splatpipe/bench/cameras.py` with `load_val_views` and the `ValView` type, tests in `tests/test_cameras.py`. The fast tier should read `138 passed, 6 deselected` afterwards. Task 5 carries the `NORMALIZE_WORLD_SPACE` trap listed below, which produces a silently wrong number rather than a crash.
+
+Task 1 added the `PngCompression` dependencies and locked them: `cupy-cuda12x==13.6.0`, `torchpq==0.3.0.6`, and `plas` pinned at commit `4f1109c9`. Three traps are recorded there. cupy 14 and later require `numpy>=2.0` and would silently break this project's `numpy<2.0.0` pin, so the version is pinned with `==` rather than `<`, which is a redirect operator in `cmd`. An unpinned git URL is not a lock, so `plas` carries its resolved commit like the three git entries that preceded it. And `torchpq` does not declare `cupy` in its metadata at all: `pip install torchpq` succeeds without it, and `torchpq/__init__.py` raises `ModuleNotFoundError` at first import.
+
+Task 2 added `decode_splat` to `src/splatpipe/formats/splat.py`, inverting the 32-byte record back to a `GaussianCloud` with explicit clamps at both quantisation edges. It returns `shN` of shape `(N, 0, 3)`, so a decoded `.splat` has `sh_degree == 0` while a `.ply` has 3. That is a real fidelity difference between the codecs and later code has to handle it rather than assume a degree.
+
+Task 3 added `src/splatpipe/bench/codecs.py`: the `Codec` protocol, `PlyCodec`, `SplatCodec` and `directory_size`. Two things it settled are worth carrying forward. **`encode` owns its target directory and creates it when missing.** The two implementations disagreed: `write_ply` calls `Path(path).parent.mkdir(parents=True, exist_ok=True)` at `src/splatpipe/gaussians.py:154` so `PlyCodec` worked, while `Path.write_bytes` does not so `SplatCodec` raised `FileNotFoundError`. Task 9's `run_bench` calls mkdir first and so tolerates either convention, but Task 6's `test_render_uses_the_clouds_own_sh_degree` encodes into an uncreated `tmp_path / "splat"` at plan line 848, which is the caller that makes the contract mandatory. **And a decoded `.splat` reporting `sh_degree == 0` while a decoded `.ply` reports 3 is now asserted at the codec layer**, so the `render.py` trap below is pinned one layer earlier than it was.
+
+Task 3 also shipped twice, and why is the useful part. A cheap model transcribed the brief faithfully and its tests passed. The brief itself was wrong, and transcription structurally cannot catch that: the directory defect above was in the plan text. Ved instructed the upgrade to a capable model, which found it. **Spend the capable tier on the task, not only on the review, unless the brief has already been validated against the code it touches.**
+
+Task 4 added `PngCodec`, wrapping gsplat's own `PngCompression`. Three things it established are binding on later milestones.
+
+**`PngCompression` cannot encode fewer than 65,536 Gaussians.** `_compress_kmeans` defaults to `n_clusters=65536` (`png_compression.py:326`), torchpq requires `n_data >= n_clusters`, and `compress` builds its kwargs as only `n_sidelen` and `verbose` (`png_compression.py:102`), so the cluster count cannot be lowered through the public API. Measured: 65,535 fails, 65,536 works, 65,537 crops one and decodes 65,536. PLAS has a second floor of 256, hit first by anything smaller, because its `min_block_size` defaults to 16 (`plas/core.py:490`) and gsplat never overrides it (`gsplat/compression/sort.py:39`). The task fixtures are therefore 65,536 and 65,537 rather than the brief's 64 and 65. **This bites at milestone 4**: pruning below 65,536 leaves the rate-distortion curve with no `PngCompression` point at all, at exactly the operating points pruning exists to explore, and nothing currently schedules that decision.
+
+**The brief's mutation warning was false and the copies were removed.** It claimed `compress` log-transforms means and normalises quats in place. Measured: with all six `.copy()` calls deleted, every caller array came back byte-identical. `.cuda()` allocates a separate device tensor, so `compress` cannot reach the caller's numpy arrays whatever it does to the dictionary. That mechanism is what the docstring states, because it survives a future gsplat that does write in place.
+
+**A passing `shN` number at this fixture size is not evidence.** Spherical harmonics round-trip at 3.17e-03 deviation only because `n_data` equals `n_clusters`, so every Gaussian gets its own centroid and K-means does nothing. At the truck's 1,000,000 those same 65,536 clusters must actually quantise. `PngCompression`'s spherical-harmonic loss at real scale is unmeasured by anything in this repository, and `shN` is 76% of the file, which is the field milestone 3 attacks.
+
+**The number milestone 3 has to beat is 16,258,005 bytes.** `PngCompression` was probed end to end before the plan was written: it runs, it round-trips, it takes about two minutes. Against the raw `.ply` at 236,001,478 bytes that is 14.52x, and it is half the size of the 32,000,000-byte `.splat` while also retaining spherical harmonics, which the `.splat` discards. `PngCompression`, not the `.splat`, is the baseline. The project spec's original worry that this pipeline "may not beat `PngCompression` by much" is well founded and is now quantified.
 
 **The pipeline reproduces the spike on the real truck scene.** That was the milestone's falsification criterion. Measured PSNR 24.394817 against the spike's 24.406155, a delta of 0.0113 dB against a 0.1 tolerance fixed before the run; SSIM 0.8579996 against 0.8580129; LPIPS 0.1375573 against 0.1372071; exactly 1,000,000 Gaussians; a `.ply` of exactly 236,001,478 bytes, matching the spike to the byte; and a `.splat` of exactly 32,000,000. Training took 8.03 minutes. No expected value was adjusted after the fact, and an independent reviewer re-derived every number from disk.
 
 GitHub access works through both SSH and `gh` as `VedJoshi`. Ved authorized routine pushes and default-branch documentation updates on 2026-08-28, and instructed the merge into `master` on 2026-09-01 after the evaluation passed. Both tiers were re-run on the exact tree being merged before it was taken.
 
-Task 7 added the numpy-only 32-byte `.splat` writer with Morton, size-opacity and input ordering. Exact records are checked against gsplat with representable scales; randomized scale fields stay within 2 ULP while every other byte remains exact. Review fixed warning-producing numeric edges and strengthened the ordering regression by mutation. The real truck cloud encodes to exactly 32,000,000 bytes.
+### What milestone 1 left behind, in short
 
-Task 8 added `RunManifest` and `ArtifactRecord` in `src/splatpipe/manifest.py`. The manifest records the resolved config, its digest, versions, the Git commit, timings, metrics and content-addressed artifact entries. It reviewed clean on the first pass. Two contracts Task 10 depends on are pinned: `RunConfig.to_dict()` pops `source_path`, so no absolute local path reaches `manifest.json`, and `ArtifactRecord.of` calls `as_posix()`, so a recorded path reads `artifacts/scene.ply` on Windows rather than a backslash form.
+The `.splat` writer is numpy-only, 32 bytes per Gaussian, with Morton, size-opacity and input ordering. Exact records check against gsplat with representable scales; randomized scale fields stay within 2 ULP while every other byte is exact. The real truck cloud encodes to exactly 32,000,000 bytes.
 
-Task 9 added the synthetic COLMAP scene fixture under `tests/fixtures/`: `colmap_bin.py` writes `cameras.bin`, `images.bin` and `points3D.bin` by hand with explicit little-endian struct widths, and `tiny_scene.py` builds a 24-image ring scene in about a second. The real installed pycolmap reads all three files back, which is what proves the widths. Two deviations from the brief were ruled in: `pillow` joined the `dev` optional dependencies, because the fixture imports `PIL` and pillow was present only as a transitive dependency of torchvision; and `look_at_quaternion` now branches on the largest quaternion component, because the brief's `w = sqrt(1 + trace) / 2` extraction is degenerate at its own default `n_images=24`. Ring index 6 gives `trace == -1.0` bit-exact, so the brief's own guard raised and every Task 9 test would have errored. Reverting that fix fails all three tests, so it is pinned by construction.
+`RunManifest` and `ArtifactRecord` live in `src/splatpipe/manifest.py`. Two contracts are pinned: `RunConfig.to_dict()` pops `source_path`, so no absolute local path reaches `manifest.json`, and `ArtifactRecord.of` calls `as_posix()`, so a recorded path reads `artifacts/scene.ply` on Windows rather than a backslash form.
+
+The synthetic COLMAP fixture is under `tests/fixtures/`: `colmap_bin.py` writes `cameras.bin`, `images.bin` and `points3D.bin` by hand with explicit little-endian struct widths, and `tiny_scene.py` builds a 24-image ring scene in about a second. The real installed pycolmap reads all three back, which is what proves the widths. `look_at_quaternion` branches on the largest quaternion component, because the `w = sqrt(1 + trace) / 2` extraction is degenerate at its own default `n_images=24`: ring index 6 gives `trace == -1.0` bit-exact. Milestone 2 reuses this fixture for its tiny-scene end-to-end test.
 
 Task 10 added `src/splatpipe/stages/train.py` and `src/splatpipe/cli.py`. Training shells out to gsplat's `simple_trainer.py` as a subprocess, because that trainer resolves `datasets.colmap` and `utils` relative to its own directory. Two plan defects were found by reading the trainer's source and ruled in before implementation. First, gsplat evaluates only at `step in [i - 1 for i in cfg.eval_steps]`, defaulting to `[7000, 30000]`, and unlike the checkpoint and ply branches that condition has no `or step == max_steps - 1` fallback, so any run shorter than 7000 steps produced no metrics: `build_train_command` now always passes `--eval-steps <max_steps>`. Second, gsplat writes stats as `{stage}_step{step:04d}.json` but the ply as `point_cloud_{step}.ply`, and the two spellings coincide at step 6999, so the defect is invisible on the truck run and only breaks below 1000 steps. A later review round moved error translation to the boundary: `from_toml` raises `ConfigError` naming the file and accepts a UTF-8 BOM, and `run_training` raises `ArtifactError` naming the exit code and the log path.
 
 `--skip-train` re-exports from an existing `train/` directory without retraining. On the tiny scene that is 2.7 seconds against 71.3 seconds, and it needs no vcvars shell, since nothing on that path imports gsplat. That is the loop to use when iterating on export, and from milestone 3 on compression.
 
-Task 11 ran the real truck scene through the CLI and compared it against the spike. Its preflight found that `out/` was not git-ignored while the brief's own final step was `git add -A`, which would have staged roughly 700 MB including two 236 MB plys and produced a commit GitHub rejects at push; `/out/` is now ignored. Its step 6 could not be followed literally, because commit `da1c671` had already deleted the README sections it names, so the intent was honoured against the current structure instead. A control worth knowing about: the new `.splat` hashes differently from the one recorded for the spike, and re-encoding the spike's own ply through today's code reproduces the old hash exactly, which proves the difference is CUDA non-determinism in training rather than a change in the encoder.
+A control worth knowing about from the truck run: the new `.splat` hashes differently from the one recorded for the spike, and re-encoding the spike's own ply through today's code reproduces the old hash exactly, which proves the difference is CUDA non-determinism in training rather than a change in the encoder. `out/` is git-ignored, anchored as `/out/`, because a run writes roughly 700 MB there including two 236 MB plys.
 
-Current suite: `116 passed, 3 deselected` fast tier, `119 passed` complete tier in about two minutes on a settled GPU, longer when it is already warm. The complete tier trains the real gsplat trainer twice, once per end-to-end test.
+Current suite at `9d0ea66`, measured on 2026-09-03: `135 passed, 6 deselected` fast tier in 6.5 seconds, `141 passed` complete tier in 150 seconds. The complete tier trains the real gsplat trainer twice, once per end-to-end test. An earlier 354-second complete tier at `add184c` did not recur and was transient machine load. Note the three `PngCodec` tests each cost a real 65,536-Gaussian encode, so the codec file's GPU tier runs about 49 seconds; that is a floor, not slack. Milestone 2 ends at 164 in the complete tier if every task lands its planned tests; the plan carries a per-task count table you can check against, renumbered twice now, after Task 3 shipped 8 tests where the plan predicted 5 and Task 4 added one more.
 
 **The provisioning sequence in `README.md` is verified, not guessed.** It was run against an empty directory on 2026-08-31: all seven steps succeed, both patches apply to the fresh venv's own site-packages, and that venv passes all 119 tests. Running it found three defects reading had not, all now fixed. `DISTUTILS_USE_SDK` was set nowhere, so torch refused to build any CUDA extension inside a vcvars shell. `setup_env.py` could not bootstrap at all: it imported gsplat to locate the file it patches, and that import triggers the JIT compile which fails with exactly the error the patch exists to prevent. And the documented dependency step pulled `fused-bilagrid`, which does not compile under MSVC and which this project has never had installed.
 
@@ -57,7 +84,7 @@ The nine deferred Minors are closed: five fixed after the whole-branch review, f
 
 For the task you are on:
 
-1. Read `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/task-N-brief.md`. It carries the complete code, exact values, and exact test assertions. Transcribe them; do not improvise names, versions, or assertions.
+1. Read `.superpowers/sdd/2026-09-01-milestone-2-bench/task-N-brief.md`. It carries the complete code, exact values, and exact test assertions. Transcribe them; do not improvise names, versions, or assertions. The briefs are generated from the plan by the `subagent-driven-development` skill's `scripts/task-brief` and are regenerable if the workspace was cleaned.
 2. Work test-first. Write the failing test, run it, confirm it fails for the stated reason, implement, run again. Do not skip the confirm-it-fails step.
 3. Commit with the message the brief gives.
 4. Record the outcome in the ledger before moving on.
@@ -71,7 +98,7 @@ Claude-Session: <your own session URL>
 
 Use your own session URL, not one copied from here. Earlier commits carry the session that produced them, which is what makes the trailer worth having.
 
-Push completed work after its review and documentation are finished. Milestone 1 passed its whole-branch review and is merged, so that gate is closed; apply the same discipline to milestone 2 and let Ved make each merge call.
+Push completed work after its review and documentation are finished. Nothing on `milestone-2-bench` has been pushed yet, so the first push creates the remote branch. Milestone 1 passed its whole-branch review and is merged, so that gate is closed; apply the same discipline to milestone 2 and let Ved make each merge call.
 
 ## Environment: the parts that will waste your time if you do not know them
 
@@ -86,6 +113,8 @@ cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q 
 Use `-o addopts=` for the complete suite. `-m gpu` selects only GPU-marked tests and leaves the CPU tests deselected.
 
 **Run every `cmd /c` line through the PowerShell tool, not the Bash tool.** Git Bash rewrites the quoted argument and you get an interactive `cmd` banner with the command never run. It exits cleanly and prints no error, so it reads as a command that did nothing rather than as a failure.
+
+**PowerShell 5.1 word-splits double quotes passed to a native executable, and this bites twice.** `git commit -m "..."` parses the message as pathspecs and commits nothing while looking like a normal failure; use `git commit -F` with a message file. The same applies to `python -c`.
 
 **PowerShell strips quotes from arguments passed to `python -c`.** An inline snippet loses its string literals and dies with a `SyntaxError` on the first `print("label:", value)`, which reads as broken code rather than as a quoting problem. Write a scratch `.py` file and run that instead. A bash heredoc writing a large Markdown document has a matching failure: it aborts with `unexpected EOF while looking for matching quote` and writes nothing. Use the file-writing tool for those.
 
@@ -115,7 +144,7 @@ git log --oneline -5
 .venv\Scripts\python.exe scripts\setup_env.py --check
 ```
 
-Expected: clean tree and synchronized tracking ref; `master` at `9f7f3a1` or later, with `9f7f3a1` present in recent history; `116 passed, 3 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
+Expected: a clean tree on `milestone-2-bench` at `9d0ea66` or later, with `9d0ea66` present in recent history; the branch tracks `origin/milestone-2-bench`, so `git status` should report it in sync rather than without an upstream; `135 passed, 6 deselected`; and `setup_env.py --check` reporting `gsplat checkout: pinned` plus `applied` for both patches. If any of that differs, stop and read the ledger before changing anything.
 
 `--check` needs no compiler shell and no GPU: `resolve_target` locates the installed files rather than importing them, which is what lets it run on a machine where gsplat cannot yet compile. Only the complete test tier needs `scripts\env.bat`, and that line must be run from PowerShell or `cmd`, never from Git Bash, which rewrites `/c` into a path and silently runs nothing while exiting 0.
 
@@ -138,8 +167,20 @@ Ved has asked for this twice. It binds prose, code comments, docstrings, commit 
 
 ## What is left
 
-1. **Plan milestone 2.** Milestone 1 is merged and closed, so this is the next piece of work. Use `superpowers:brainstorming` before writing any plan, and start it on a fresh branch off `master`.
-2. Everything from milestone 1 is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; the provisioning sequence has been verified against an empty directory rather than reconstructed; and the merge into `master` has been taken.
+1. **Milestone 2, tasks 5 through 11**, one per turn, each through `superpowers:subagent-driven-development`: implementer dispatch, task review, fix loop, scoped re-review, ledger completion line. Task 5 is the cameras.
+2. **After task 11**: a whole-branch review on the most capable model, then `superpowers:finishing-a-development-branch`. Ved makes the merge call.
+3. Everything from milestone 1 is closed. The whole-branch review has been run; the nine deferred Minors are five fixed and four consciously accepted, with the reasoning for each recorded in `HANDOFF.md`; the provisioning sequence has been verified against an empty directory rather than reconstructed; and the merge into `master` has been taken.
+
+### The four traps in the remaining milestone 2 tasks
+
+Each of these is a silent wrong number rather than a crash, which is why they are here rather than only in the spec.
+
+- **`Parser` defaults `normalize=False` while gsplat's trainer passes `cfg.normalize_world_space`, which is `True`** (`simple_trainer.py:67`). Loading cameras with the default silently evaluates against a differently scaled world and every metric is quietly wrong. `bench/cameras.py` encodes this as the named constant `NORMALIZE_WORLD_SPACE = True`.
+- **`render.py` must derive `sh_degree` from the cloud.** A decoded `.splat` has degree 0 and a `.ply` has degree 3. Hardcoding it renders the wrong thing for one codec and still produces a plausible number.
+- **`PngCompression.compress` mutates the dictionary it is given.** It applies `log_transform` to means and normalises quats in place, so `PngCodec` must pass copies or the cloud is corrupted for every codec measured afterwards.
+- **`PngCompression` crops to a square number of Gaussians.** Truck holds exactly 1,000,000, which is 1000 squared, so nothing is dropped now. From milestone 4 pruning will rarely produce a square count, so `curve.json` records the count actually encoded per codec rather than assuming it equals the input.
+
+One more thing worth knowing before a run fails on a train: LPIPS downloads AlexNet weights on first use, which makes the first bench run network-dependent in a project that is otherwise reproducible offline.
 
 The two packaging issues that were deferred to Task 11 are closed. `requirements.lock.txt` no longer records the package through a private `git+ssh` URL; note that a plain `pip freeze` will put it back, because pip resolves an editable install inside a Git checkout to that checkout's remote, so regenerate with `pip freeze --exclude-editable` and leave the hand-maintained `-e .` line alone. `plyfile` deliberately stays `>=1.0` in `pyproject.toml` and `==1.1.3` in the lock: the version cannot affect the byte target, since gsplat writes the `.ply` through its own `splat2ply_bytes` and never imports plyfile.
 
@@ -149,8 +190,17 @@ The two packaging issues that were deferred to Task 11 are closed. `requirements
 
 ## Judgment
 
-Make routine calls yourself and record them. If you find something in the plan that is wrong, say so and fix it rather than implementing a known defect. Ten plan defects were found and fixed this way across the milestone, almost all of them at the boundary with upstream gsplat or with Windows, and almost all found by reading the upstream source or measuring rather than by trusting the brief. The last of them, in Task 11, would have produced a commit that could not be pushed. That history is in the ledger and is worth reading, because it shows the kind of mistake this codebase invites.
+Make routine calls yourself and record them. If you find something in the plan that is wrong, say so and fix it rather than implementing a known defect. Ten plan defects were found and fixed this way across milestone 1, almost all of them at the boundary with upstream gsplat or with Windows, and almost all found by reading the upstream source or measuring rather than by trusting the brief. The last of them, in Task 11, would have produced a commit that could not be pushed. Milestone 2's pre-flight scan found three more before any code was written. That history is in the two ledgers and is worth reading, because it shows the kind of mistake this codebase invites.
 
-Do not treat a brief as current merely because it is detailed. Task 11's brief edited README sections that a later commit had already deleted. Check the file before transcribing an edit into it.
+**Measure before you write a rationale into a test.** Milestone 2 Task 2 needed three fix rounds, all of them claim accuracy rather than code correctness, and two of them corrected wording the controller had supplied. Reasoning about the `.splat` quaternion encoding on paper produced a false claim three separate times: a wrong divisor is undetectable and also harmless because it cancels under normalisation; dropping the normalisation gives a smaller error than the correct decoder; and an offset of 127 passes while 129 fails, because `encode_splat` truncates rather than rounds. A docstring that states what a test pins is only worth having if the statement was measured.
 
-Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The remaining open owner decision is how phone captures get COLMAP poses. The milestone 1 merge was one of these and has been taken.
+Task 3's single fix round was the same defect in a sharper form. The implementer found the directory bug, fixed it, wrote the test that guards the fix, and then wrote in that test's docstring that "nothing downstream would have reported the disagreement", which its own headline finding disproves. That sentence sat on the test protecting the fix and read as an argument for deleting both. **A false claim in a docstring is a defect at the severity of wrong code in this project, and it is most dangerous when it is attached to the thing it undermines.** Cite a stable identifier beside any plan line number you use; the plan has been renumbered twice this milestone.
+
+Do not treat a brief as current merely because it is detailed. Milestone 1's Task 11 brief edited README sections that a later commit had already deleted. Check the file before transcribing an edit into it. Milestone 2's Task 2 brief called a test helper `a_cloud` that does not exist; the real one is `make_cloud`. Check the names too.
+
+Stop and ask Ved for destructive or irreversible operations and decisions that are genuinely his. The milestone 1 merge was one of these and has been taken. Two owner decisions are open, both raised on 2026-09-02 and neither ruled on:
+
+- **How phone captures get COLMAP poses.** Nothing in this repository produces them: the installed `pycolmap` is the reader package and there is no COLMAP binary on the machine, so the project cannot yet consume a scene Ved shot himself. This is spec success criterion 4 and no milestone from 1 to 8 schedules it.
+- **Whether the project keeps aiming to beat `PngCompression` at all.** The four alternatives sketched are: compete on compression speed rather than size; go for the viewer and the shareable link; close the capture gap first; or lean into measurement and publish a replication study. `HANDOFF.md` records the full argument. Do not act as though this has been decided.
+
+Note that task commits are pre-authorized and pushes are not, which sits alongside Ved's standing rule that `git commit` needs permission. An implementer flagging that tension is right to raise it.

@@ -8,6 +8,50 @@ and rendering performance.
 The central question is practical: how much of a trained Gaussian scene can be
 removed or quantized before the visual loss becomes unacceptable?
 
+## What this does, without the jargon
+
+Photograph an object from many angles. Software works out where each photo was
+taken from, then fills the space with millions of tiny coloured translucent
+blobs and adjusts each blob's position, size, colour and transparency until the
+cloud, seen from where each photo was taken, matches that photo. You can then
+view the object from angles you never photographed. That is Gaussian splatting,
+and each blob is a Gaussian.
+
+The resulting cloud is large. The reference truck scene is 1,000,000 blobs and
+236 MB, which is too large to send to a browser. So the question above becomes:
+how small can it get before it starts looking bad. Measuring that trade-off is
+what "rate-distortion" means throughout this repository. Rate is file size,
+distortion is quality lost.
+
+Where the bytes go, per Gaussian, out of 236:
+
+| Field | Bytes | Share |
+|---|---:|---:|
+| `shN`, view-dependent colour | 180 | 76% |
+| `quats`, rotation | 16 | 7% |
+| `means`, position | 12 | 5% |
+| `sh0`, base colour | 12 | 5% |
+| `scales`, size | 12 | 5% |
+| `opacities`, transparency | 4 | 2% |
+
+Three quarters of the file describes how each blob's colour shifts as the
+viewer moves around it. Compression wins come from that field, or from storing
+fewer blobs.
+
+## What you need before you can run it
+
+This pipeline consumes a COLMAP scene, not a folder of photographs. It requires
+`images/` holding at least 8 images, and `sparse/0/` holding `cameras.bin`,
+`images.bin` and `points3D.bin`, which together are a finished COLMAP
+reconstruction. `SceneLayout.discover` in `src/splatpipe/scene.py` checks this
+before any GPU time is spent.
+
+**Nothing in this repository produces those camera poses.** The `pycolmap`
+dependency is the reader package and exposes no reconstruction API. To use your
+own photographs today, run COLMAP itself over them first, then point
+`splatpipe run` at the directory it produces. A capture-to-poses stage is a
+known gap rather than an oversight; it is tracked in `HANDOFF.md`.
+
 ## Project status
 
 Milestone 1 is complete. One command now trains a COLMAP scene and packages it,
@@ -24,6 +68,27 @@ again as a whole before it was called done. The pipeline provides:
 - numpy-only `.splat` encoding with spatial and visual ordering
 - a run manifest recording the resolved config and its digest, library
   versions, the Git commit, timings, held-out metrics, and artifact checksums
+
+Milestone 2 is under way, 4 of 11 tasks complete. It adds
+`src/splatpipe/bench/`, which measures rate-distortion points on held-out views
+for the raw `.ply`, the `.splat`, and gsplat's own `PngCompression`. It adds no
+compression of this project's own. The codec protocol and all three codecs
+exist; the cameras, the renderer, the metrics and the `bench` subcommand do
+not yet.
+
+One constraint found while wrapping `PngCompression` is worth stating here,
+because it shapes later milestones. It cannot encode fewer than 65,536
+Gaussians: its K-means step requests 65,536 clusters and needs at least as many
+input points, and the cluster count cannot be lowered through its public API.
+Contribution pruning in milestone 4 therefore has roughly 15x of headroom on
+the truck scene before the baseline codec stops being able to run at all.
+
+A direct probe run before the harness existed puts `PngCompression` at
+16,258,005 bytes on the truck scene, which is 14.52x against the raw `.ply`.
+That is half the size of the `.splat` and it retains spherical harmonics, which
+the `.splat` discards, so it is the baseline the later milestones have to beat.
+The number is a probe rather than a harness result and will be reproduced
+through the bench when milestone 2 closes.
 
 Compression itself begins at milestone 3. Until then the repository should be
 treated as pre-release research code.
@@ -205,7 +270,7 @@ rendering performance.
 | Milestone | Outcome | State |
 |---|---|---|
 | 1. Scripted pipeline | One command reproduces the training and export baseline | Done |
-| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | Planned |
+| 2. Baseline benchmark | Raw, `.splat`, and `PngCompression` rate-distortion points | In progress |
 | 3. SH quantization | First measured compression improvement | Planned |
 | 4. Contribution pruning | Quality-aware Gaussian reduction | Planned |
 | 5. Container format | Entropy-coded artifacts with a documented schema | Planned |
@@ -217,7 +282,9 @@ rendering performance.
 
 - [Pipeline design](docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md)
 - [Milestone 1 implementation plan](docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md)
-- [Current implementation handoff](https://github.com/VedJoshi/gaussian-splat-compression/blob/milestone-1-scripted-pipeline/HANDOFF.md)
+- [Milestone 2 benchmark design](docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md)
+- [Milestone 2 implementation plan](docs/superpowers/plans/2026-09-01-milestone-2-bench.md)
+- [Current implementation handoff](HANDOFF.md)
 - [`SPIKE_LOG.txt`](SPIKE_LOG.txt), the full feasibility experiment record
 
 Large datasets, trained artifacts, third-party checkouts, virtual environments,

@@ -52,6 +52,14 @@ class RunPaths:
     def train_log(self) -> Path:
         return self.logs_dir / "train.log"
 
+    @property
+    def curve_json(self) -> Path:
+        return self.root / "curve.json"
+
+    @property
+    def curve_png(self) -> Path:
+        return self.root / "curve.png"
+
     def trained_ply(self, max_steps: int) -> Path:
         """Where gsplat writes the final ply. It names files by step index, so
         a 7000-step run produces point_cloud_6999.ply."""

@@ -29,10 +29,18 @@ That claim is what you are protecting. A pipeline that produces numbers nobody
 can reproduce, or artifacts nobody can trace to the settings that made them,
 fails the claim even if every test passes. Weigh findings against that.
 
-The work is split into eight milestones. Milestone 1 turns an earlier
+The work is split into eight milestones. Milestone 1 turned an earlier
 throwaway spike into a reproducible command:
-`splatpipe run <scene-dir> --config <cfg> --out <dir>`. Its success criterion
-is a real scene reproduced end to end, not a green test suite.
+`splatpipe run <scene-dir> --config <cfg> --out <dir>`. It is complete and
+merged into `master`. Milestone 2 is under way on `milestone-2-bench`: it
+builds `src/splatpipe/bench/` and measures rate-distortion baselines for the
+raw `.ply`, the `.splat`, and gsplat's `PngCompression`.
+
+Each milestone's success criterion is a real measurement, not a green test
+suite. Milestone 1's was the truck scene reproduced end to end. Milestone 2's
+is three codecs measured on held-out views, each with a size and a PSNR, SSIM
+and LPIPS triple, with the `.ply` point matching the milestone 1 manifest to
+the byte.
 
 ## Authority, in order
 
@@ -40,21 +48,37 @@ Read these in this order. Later items lose to earlier ones on conflict.
 
 1. `docs/superpowers/specs/2026-08-25-splat-compression-pipeline-design.md`
    The binding authority. Everything else argues from it.
-2. `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md`
-   11 tasks, 76 steps, with complete code per task. Its **Global Constraints**
+2. The design for the milestone under review. For milestone 2 that is
+   `docs/superpowers/specs/2026-09-01-milestone-2-bench-design.md`, which
+   records the probe measurements, the dependency traps, the module table, and
+   the codec protocol. It is binding over the plan.
+3. The plan for that milestone:
+   `docs/superpowers/plans/2026-09-01-milestone-2-bench.md` for milestone 2,
+   `docs/superpowers/plans/2026-08-26-milestone-1-scripted-pipeline.md` for
+   milestone 1. Each has complete code per task, and its **Global Constraints**
    section binds every task. Read that section in full.
-3. `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`
-   The ledger: the authoritative record of what is complete and every ruling
-   made. This directory is git-ignored, so it exists only in this local
-   checkout. It is not in the remote.
-4. `HANDOFF.md` The current-state summary. Convenient, and derived, so trust
+4. That milestone's ledger:
+   `.superpowers/sdd/2026-09-01-milestone-2-bench/progress.md` or
+   `.superpowers/sdd/2026-08-26-milestone-1-scripted-pipeline/progress.md`.
+   The ledger is the authoritative record of what is complete and every ruling
+   made, each with its cost if wrong. These directories are git-ignored, so
+   they exist only in this local checkout. They are not in the remote.
+5. `HANDOFF.md` The current-state summary. Convenient, and derived, so trust
    the ledger and `git log` over it where they disagree.
 
-The plan is not above criticism. Three plan defects were found and fixed before
-any code was written, and a fourth surfaced during Task 3 when the patch
-machinery corrupted a live library file. If the plan mandates something that is
-wrong, say so. A defect does not stop being a defect because the plan asked for
-it. Report those as Important, labeled plan-mandated.
+The plan is not above criticism. Ten plan defects were found and fixed across
+milestone 1, and milestone 2's pre-flight scan found three more before any code
+was written, including a test that called a helper which does not exist and a
+round-trip assertion on values the `.splat` format cannot represent. If the plan
+mandates something that is wrong, say so. A defect does not stop being a defect
+because the plan asked for it. Report those as Important, labeled plan-mandated.
+
+Claims are part of the code. Milestone 2 has already corrected three false
+statements in docstrings and design documents, two of them written by the
+controller rather than by an implementer, and every one of them was caught by
+measuring rather than by rereading. A comment or docstring that asserts what a
+test pins, what a dependency does, or what an error bound is, and is wrong, is
+a defect at the same severity as wrong code, because the next reader acts on it.
 
 ## Ground rules
 
