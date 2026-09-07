@@ -148,6 +148,41 @@ class ShVqCodec(PngCodec):
         )
 
 
+class PrunedCodec:
+    """Apply one fixed ranking before delegating to an existing codec."""
+
+    def __init__(
+        self,
+        codec: Codec,
+        scores,
+        retained_percent: int,
+        score_name: str,
+    ) -> None:
+        from splatpipe.compress.prune import parse_retained_percentages
+
+        parse_retained_percentages(str(retained_percent))
+        self.codec = codec
+        self.scores = scores
+        self.retained_percent = retained_percent
+        self.name = f"{score_name}{retained_percent}-{codec.name}"
+
+    def encode(self, cloud: GaussianCloud, directory: Path) -> None:
+        from splatpipe.compress.prune import prune_by_score
+
+        pruned = prune_by_score(
+            cloud,
+            self.scores,
+            retained_fraction=self.retained_percent / 100.0,
+        )
+        self.codec.encode(pruned, directory)
+
+    def decode(self, directory: Path) -> GaussianCloud:
+        return self.codec.decode(directory)
+
+    def size(self, directory: Path) -> int:
+        return self.codec.size(directory)
+
+
 CODECS = {
     "ply": PlyCodec,
     "splat": SplatCodec,

@@ -137,3 +137,16 @@ def test_cli_rejects_an_unknown_codec_name(tmp_path, capsys):
         == 1
     )
     assert "unknown codec" in capsys.readouterr().err
+
+
+def test_bench_rejects_an_unsafe_output_namespace(tmp_path, monkeypatch):
+    paths = a_run(tmp_path)
+    stub_views(monkeypatch)
+    with pytest.raises(ArtifactError, match="namespace"):
+        bench_run.run_bench(
+            paths.root,
+            tmp_path / "scene",
+            [PlyCodec()],
+            device="cpu",
+            output_namespace="../elsewhere",
+        )

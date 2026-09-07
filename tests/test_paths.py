@@ -11,6 +11,11 @@ def test_layout_is_derived_from_root_and_name():
     assert paths.ply == Path("out") / "truck" / "artifacts" / "scene.ply"
     assert paths.splat == Path("out") / "truck" / "artifacts" / "scene.splat"
     assert paths.train_log == Path("out") / "truck" / "logs" / "train.log"
+    assert paths.pruning_dir == Path("out") / "truck" / "pruning"
+    assert paths.prune_curve_json == paths.pruning_dir / "curve.json"
+    assert paths.prune_curve_png == paths.pruning_dir / "curve.png"
+    assert paths.prune_scores == paths.pruning_dir / "scores.npz"
+    assert paths.prune_meta == paths.pruning_dir / "meta.json"
 
 
 def test_trained_ply_follows_gsplats_off_by_one_naming():

@@ -28,6 +28,7 @@ def run_bench(
     device: str = "cuda",
     data_factor: int = 1,
     test_every: int = 8,
+    output_namespace: str | None = None,
 ) -> Curve:
     run_dir = Path(run_dir)
     paths = RunPaths(root=run_dir)
@@ -53,7 +54,10 @@ def run_bench(
         held_out_views=len(views),
     )
 
-    scratch = run_dir / "bench"
+    output_dir = _output_dir(run_dir, output_namespace)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scratch = output_dir / "bench"
+    _assert_owned_scratch(run_dir, scratch)
     if scratch.exists():
         shutil.rmtree(scratch)
 
@@ -94,9 +98,34 @@ def run_bench(
             f"LPIPS {scores['lpips']:.4f}"
         )
 
-    curve.write_json(paths.curve_json)
-    curve.write_plot(paths.curve_png)
+    curve.write_json(output_dir / "curve.json")
+    curve.write_plot(output_dir / "curve.png")
     return curve
+
+
+def _output_dir(run_dir: Path, namespace: str | None) -> Path:
+    if namespace is None:
+        return run_dir
+    if (
+        not namespace
+        or namespace in {".", ".."}
+        or "/" in namespace
+        or "\\" in namespace
+        or Path(namespace).name != namespace
+    ):
+        raise ArtifactError(f"invalid benchmark output namespace {namespace!r}")
+    return run_dir / namespace
+
+
+def _assert_owned_scratch(run_dir: Path, scratch: Path) -> None:
+    root = run_dir.resolve()
+    target = scratch.resolve()
+    try:
+        relative = target.relative_to(root)
+    except ValueError as error:
+        raise ArtifactError(f"benchmark scratch directory escapes {root}") from error
+    if relative == Path("."):
+        raise ArtifactError("benchmark scratch directory must not be the run root")
 
 
 def _scene_name(paths: RunPaths, run_dir: Path) -> str:

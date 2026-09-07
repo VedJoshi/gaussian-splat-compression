@@ -10,6 +10,7 @@ from splatpipe.bench.codecs import (
     Codec,
     PlyCodec,
     PngCodec,
+    PrunedCodec,
     ShVqCodec,
     SplatCodec,
     directory_size,
@@ -113,6 +114,17 @@ def test_sh_vq_codec_validates_its_configuration():
         ShVqCodec(1)
     with pytest.raises(ConfigError, match="seed"):
         ShVqCodec(256, seed=-1)
+
+
+def test_pruned_codec_composes_selection_with_an_existing_codec(tmp_path):
+    cloud = a_cloud(10)
+    scores = np.arange(10, dtype=np.float64)
+    codec = PrunedCodec(PlyCodec(), scores, retained_percent=60, score_name="prune")
+    codec.encode(cloud, tmp_path)
+    decoded = codec.decode(tmp_path)
+    assert codec.name == "prune60-ply"
+    assert len(decoded) == 6
+    np.testing.assert_array_equal(decoded.means, cloud.means[4:])
 
 
 # PngCompression has no CPU path.

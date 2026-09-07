@@ -60,3 +60,26 @@ def test_bench_measures_every_codec_on_a_trained_scene(tmp_path):
     for point in curve.points:
         assert point.psnr == point.psnr
         assert point.gaussians > 0
+
+    assert (
+        main(
+            [
+                "prune",
+                str(paths.root),
+                "--scene",
+                str(scene),
+                "--retain",
+                "50",
+                "--codecs",
+                "ply",
+            ]
+        )
+        == 0
+    )
+    prune_curve = Curve.read_json(paths.prune_curve_json)
+    assert [point.codec for point in prune_curve.points] == [
+        "ply",
+        "prune50-ply",
+        "opacity50-ply",
+    ]
+    assert prune_curve.points[1].gaussians < prune_curve.points[0].gaussians

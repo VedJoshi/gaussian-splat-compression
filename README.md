@@ -36,7 +36,7 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 3 (done):** Configurable vector quantization for higher-order SH coefficients, measured at 256, 1,024, and 4,096 codebook entries.
 
-**Milestone 4 (planned):** Contribution-based pruning.
+**Milestone 4 (done):** Occlusion-aware contribution pruning, an opacity ablation, and a measured retained-count sweep.
 
 **Milestone 5–8 (planned):** Container format, viewer, multi-scene evaluation, writeup.
 
@@ -78,6 +78,24 @@ The truck benchmark used the same 1,000,000-Gaussian PLY and 32 held-out views f
 
 The 4,096-entry point is the conservative improvement: 10.40% smaller than stock `PngCompression` with a 0.063 dB PSNR reduction. The encoder uses 6-bit, per-component codebook quantization and the narrowest safe label type. It changes only higher-order SH storage; geometry, opacity, DC color, and spatial sorting remain on the baseline path.
 
+## Milestone 4 result
+
+The pruning score sums each Gaussian's alpha-blending weight across all 117,062,946 pixels in the 219 training views, then applies the capped volume factor from LightGaussian with exponent 0.1. The 32 held-out views are used only for evaluation. No recovery or fine-tuning is performed.
+
+The retained fractions and quality limits were fixed before the truck sweep. A raw pruned PLY passes only when its changes from the unpruned PLY stay within -0.10 dB PSNR, -0.002 SSIM, and +0.005 LPIPS. The most aggressive passing point is selected.
+
+| Retained | Raw Gaussians | Raw PSNR | Raw SSIM | Raw LPIPS | SH VQ Gaussians | SH VQ bytes | SH VQ PSNR | SH VQ SSIM | SH VQ LPIPS |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100% | 1,000,000 | 24.4002 | 0.8581 | 0.1375 | 1,000,000 | 14,526,288 | 24.2488 | 0.8539 | 0.1425 |
+| 95% | 950,000 | 24.4003 | 0.8581 | 0.1375 | 948,676 | 14,051,503 | 24.2695 | 0.8544 | 0.1422 |
+| 90% | 900,000 | 24.3999 | 0.8580 | 0.1378 | 898,704 | 13,317,667 | 24.2639 | 0.8543 | 0.1423 |
+| **80%** | **800,000** | **24.3915** | **0.8573** | **0.1386** | **799,236** | **11,920,255** | **24.2632** | **0.8537** | **0.1432** |
+| 70% | 700,000 | 24.3578 | 0.8557 | 0.1402 | 698,896 | 10,449,576 | 24.2336 | 0.8520 | 0.1448 |
+
+The selected 80% raw point removes 200,000 Gaussians for changes of -0.0087 dB PSNR, -0.00078 SSIM, and +0.00114 LPIPS. At the same retained count, opacity ranking has 0.0098 dB lower PSNR but slightly better SSIM and LPIPS. Contribution ranking therefore does not dominate the simpler baseline on every metric.
+
+Combined with `shvq4096`, the selected point is 11.92 MB and 19.80x smaller than PLY. It is 26.48% smaller than seeded stock `PngCompression` for a -0.0506 dB PSNR change, and 17.94% smaller than the same-run unpruned `shvq4096`. PNG-family square cropping accounts for the decoded count of 799,236 rather than exactly 800,000.
+
 ## Setup (Windows)
 
 Prerequisites (fixed paths):
@@ -116,6 +134,13 @@ Benchmark codecs against held-out views:
 
 Outputs: `out/truck/curve.json`, `curve.png`.
 
+Measure contribution pruning and its opacity ablation:
+```bat
+.venv\Scripts\splatpipe.exe prune out\truck --scene data\tandt\truck --retain 95,90,80,70
+```
+
+Outputs: `out/truck/pruning/{scores.npz, meta.json, curve.json, curve.png}` and per-point codec directories under `out/truck/pruning/bench/`.
+
 Add `--skip-train` to re-export without retraining.
 
 ### Tests
@@ -130,7 +155,7 @@ Full tier (GPU, trains twice):
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected counts after Milestone 3: 167 fast tests with 12 GPU tests deselected; 179 tests in the complete tier.
+Expected counts after Milestone 4: 191 fast tests with 13 GPU tests deselected; 204 tests in the complete tier.
 
 ## Repository layout
 
@@ -151,7 +176,7 @@ Expected counts after Milestone 3: 167 fast tests with 12 GPU tests deselected; 
 | 1. Training pipeline | Done |
 | 2. Benchmarking harness | Done |
 | 3. SH quantization | Done |
-| 4. Contribution pruning | Planned |
+| 4. Contribution pruning | Done |
 | 5. Container format | Planned |
 | 6. Viewer integration | Planned |
 | 7. Multi-scene evaluation | Planned |

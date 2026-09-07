@@ -60,6 +60,26 @@ class RunPaths:
     def curve_png(self) -> Path:
         return self.root / "curve.png"
 
+    @property
+    def pruning_dir(self) -> Path:
+        return self.root / "pruning"
+
+    @property
+    def prune_curve_json(self) -> Path:
+        return self.pruning_dir / "curve.json"
+
+    @property
+    def prune_curve_png(self) -> Path:
+        return self.pruning_dir / "curve.png"
+
+    @property
+    def prune_scores(self) -> Path:
+        return self.pruning_dir / "scores.npz"
+
+    @property
+    def prune_meta(self) -> Path:
+        return self.pruning_dir / "meta.json"
+
     def trained_ply(self, max_steps: int) -> Path:
         """Where gsplat writes the final ply. It names files by step index, so
         a 7000-step run produces point_cloud_6999.ply."""

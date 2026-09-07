@@ -36,6 +36,14 @@ class ValView:
     image: np.ndarray  # (H, W, 3) uint8
 
 
+@dataclass(frozen=True)
+class CalibrationView:
+    camtoworld: np.ndarray  # (4, 4) float32
+    K: np.ndarray  # (3, 3) float32
+    height: int
+    width: int
+
+
 def _import_colmap_dataset():
     """Put gsplat's examples directory on sys.path and import its loader.
 
@@ -74,6 +82,37 @@ def load_val_views(
                 camtoworld=np.asarray(item["camtoworld"], dtype=np.float32),
                 K=np.asarray(item["K"], dtype=np.float32),
                 image=np.asarray(item["image"], dtype=np.uint8),
+            )
+        )
+    return views
+
+
+def load_train_views(
+    scene_dir: Path,
+    data_factor: int = 1,
+    test_every: int = 8,
+) -> list[CalibrationView]:
+    """Load training-camera geometry without reading every training image."""
+    Parser, _ = _import_colmap_dataset()
+    parser = Parser(
+        data_dir=str(Path(scene_dir).resolve()),
+        factor=data_factor,
+        normalize=NORMALIZE_WORLD_SPACE,
+        test_every=test_every,
+    )
+    views = []
+    indices = np.arange(len(parser.image_names))
+    for index in indices[indices % parser.test_every != 0]:
+        camera_id = parser.camera_ids[index]
+        width, height = parser.imsize_dict[camera_id]
+        views.append(
+            CalibrationView(
+                camtoworld=np.asarray(
+                    parser.camtoworlds[index], dtype=np.float32
+                ).copy(),
+                K=np.asarray(parser.Ks_dict[camera_id], dtype=np.float32).copy(),
+                height=int(height),
+                width=int(width),
             )
         )
     return views

@@ -105,11 +105,31 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated codec names in measurement order. The first is the anchor.",
     )
 
+    prune = subparsers.add_parser(
+        "prune", help="rank Gaussians on training views and measure retained-count sweeps"
+    )
+    prune.add_argument("run_dir", type=Path, help="an existing splatpipe run directory")
+    prune.add_argument(
+        "--scene", type=Path, required=True, help="the COLMAP scene it was trained on"
+    )
+    prune.add_argument("--data-factor", type=int, default=1)
+    prune.add_argument("--test-every", type=int, default=8)
+    prune.add_argument(
+        "--retain",
+        default="95,90,80,70",
+        help="comma-separated whole percentages of Gaussians to retain",
+    )
+    prune.add_argument(
+        "--codecs",
+        default="ply,png,shvq4096",
+        help="codecs to measure; png is kept as an unpruned reference",
+    )
+
     args = parser.parse_args(argv)
     try:
         if args.command == "run":
             run_pipeline(args.scene, RunConfig.from_toml(args.config), args.out, args.skip_train)
-        else:
+        elif args.command == "bench":
             from splatpipe.bench.codecs import build_codecs
             from splatpipe.bench.run import run_bench
 
@@ -117,6 +137,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_dir,
                 args.scene,
                 build_codecs(args.codecs),
+                data_factor=args.data_factor,
+                test_every=args.test_every,
+            )
+        else:
+            from splatpipe.bench.codecs import build_codecs
+            from splatpipe.bench.prune import run_prune_bench
+            from splatpipe.compress.prune import parse_retained_percentages
+
+            run_prune_bench(
+                args.run_dir,
+                args.scene,
+                build_codecs(args.codecs),
+                parse_retained_percentages(args.retain),
                 data_factor=args.data_factor,
                 test_every=args.test_every,
             )
