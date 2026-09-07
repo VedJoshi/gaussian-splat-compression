@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import zlib
 
 import numpy as np
 import pytest
@@ -269,3 +270,143 @@ def test_a_codec_for_an_unknown_block_is_rejected(tmp_path):
             tmp_path / "scene.splatc",
             codecs={"nonexistent": "raw"},
         )
+
+
+def _a_container(tmp_path, order="none", n=128):
+    path = tmp_path / "scene.splatc"
+    write_container(pack_scene(a_cloud(n), order=order), path)
+    return path
+
+
+def _rewrite_descriptor(path, mutate):
+    """Rebuild the file with a mutated descriptor and a repaired checksum, so a
+    test can probe a specific fault instead of tripping the descriptor CRC."""
+    data = bytearray(path.read_bytes())
+    json_len = struct.unpack("<I", data[8:12])[0]
+    descriptor = json.loads(data[PREFIX_LEN : PREFIX_LEN + json_len].decode("utf-8"))
+    mutate(descriptor)
+    encoded = json.dumps(descriptor, separators=(",", ":")).encode("utf-8")
+    encoded += b" " * ((-(PREFIX_LEN + len(encoded))) % ALIGNMENT)
+    payload = bytes(data[PREFIX_LEN + json_len :])
+    prefix = struct.pack(
+        "<6sBBIIQ",
+        MAGIC,
+        VERSION_MAJOR,
+        VERSION_MINOR,
+        len(encoded),
+        zlib.crc32(encoded) & 0xFFFFFFFF,
+        len(payload),
+    )
+    path.write_bytes(prefix + encoded + payload)
+
+
+def test_a_foreign_file_is_refused(tmp_path):
+    path = tmp_path / "scene.splatc"
+    path.write_bytes(b"PLYFILE" + b"\x00" * 64)
+    with pytest.raises(ArtifactError, match="not a splatc container"):
+        read_container(path)
+
+
+def test_a_file_shorter_than_the_header_is_refused(tmp_path):
+    path = tmp_path / "scene.splatc"
+    path.write_bytes(b"SPL")
+    with pytest.raises(ArtifactError, match="shorter than the header"):
+        read_container(path)
+
+
+def test_a_future_major_version_is_refused(tmp_path):
+    path = _a_container(tmp_path)
+    data = bytearray(path.read_bytes())
+    data[6] = VERSION_MAJOR + 1
+    path.write_bytes(bytes(data))
+    with pytest.raises(ArtifactError, match="major version"):
+        read_container(path)
+
+
+def test_a_forward_minor_version_still_reads(tmp_path):
+    path = _a_container(tmp_path)
+    data = bytearray(path.read_bytes())
+    data[7] = VERSION_MINOR + 7
+    path.write_bytes(bytes(data))
+    assert read_container(path).count == 128
+
+
+def test_unknown_descriptor_keys_are_ignored(tmp_path):
+    path = _a_container(tmp_path)
+    _rewrite_descriptor(path, lambda d: d.update({"future_field": {"anything": 1}}))
+    assert read_container(path).count == 128
+
+
+def test_a_tampered_descriptor_is_refused(tmp_path):
+    path = _a_container(tmp_path)
+    data = bytearray(path.read_bytes())
+    json_len = struct.unpack("<I", data[8:12])[0]
+    # Flip a byte inside the descriptor without repairing its checksum.
+    data[PREFIX_LEN + json_len - 1] = ord("\t")
+    path.write_bytes(bytes(data))
+    with pytest.raises(ArtifactError, match="descriptor checksum"):
+        read_container(path)
+
+
+def test_a_tampered_block_is_refused_by_name(tmp_path):
+    path = _a_container(tmp_path)
+    block = next(
+        b for b in container_descriptor(path)["blocks"] if b["name"] == "quats"
+    )
+    data = bytearray(path.read_bytes())
+    json_len = struct.unpack("<I", bytes(data[8:12]))[0]
+    data[PREFIX_LEN + json_len + block["offset"]] ^= 0xFF
+    path.write_bytes(bytes(data))
+    with pytest.raises(ArtifactError, match="'quats' failed its checksum"):
+        read_container(path)
+
+
+def test_a_truncated_payload_is_refused(tmp_path):
+    path = _a_container(tmp_path)
+    data = path.read_bytes()
+    path.write_bytes(data[: len(data) - 32])
+    with pytest.raises(ArtifactError, match="holds"):
+        read_container(path)
+
+
+def test_a_block_extent_past_the_payload_is_refused(tmp_path):
+    path = _a_container(tmp_path)
+
+    def mutate(descriptor):
+        descriptor["blocks"][0]["length"] += 1_000_000
+
+    _rewrite_descriptor(path, mutate)
+    with pytest.raises(ArtifactError, match="outside a"):
+        read_container(path)
+
+
+def test_overlapping_blocks_are_refused(tmp_path):
+    path = _a_container(tmp_path)
+
+    def mutate(descriptor):
+        first, second = descriptor["blocks"][0], descriptor["blocks"][1]
+        for key in (
+            "offset",
+            "length",
+            "raw_length",
+            "crc32",
+            "codec",
+            "dtype",
+            "stored_shape",
+        ):
+            second[key] = first[key]
+
+    _rewrite_descriptor(path, mutate)
+    with pytest.raises(ArtifactError, match="overlap"):
+        read_container(path)
+
+
+def test_an_unknown_codec_on_a_required_block_is_refused(tmp_path):
+    path = _a_container(tmp_path)
+
+    def mutate(descriptor):
+        descriptor["blocks"][0]["codec"] = "brotli"
+
+    _rewrite_descriptor(path, mutate)
+    with pytest.raises(ConfigError, match="unknown block codec"):
+        read_container(path)
