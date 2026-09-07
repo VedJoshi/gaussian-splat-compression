@@ -1,5 +1,7 @@
 import hashlib
+from types import SimpleNamespace
 
+from splatpipe import manifest as manifest_module
 from splatpipe.config import RunConfig, TrainConfig
 from splatpipe.manifest import ArtifactRecord, RunManifest, collect_versions
 
@@ -41,3 +43,18 @@ def test_versions_include_what_would_change_a_result():
     assert versions["python"].startswith("3.11")
     for key in ("numpy", "splatpipe", "platform"):
         assert versions[key]
+
+
+def test_git_version_marks_an_uncommitted_tree(monkeypatch):
+    responses = iter(
+        [
+            SimpleNamespace(stdout="abc123\n"),
+            SimpleNamespace(stdout=" M src/splatpipe/manifest.py\n"),
+        ]
+    )
+    monkeypatch.setattr(
+        manifest_module.subprocess,
+        "run",
+        lambda *args, **kwargs: next(responses),
+    )
+    assert manifest_module._git_commit() == "abc123-dirty"

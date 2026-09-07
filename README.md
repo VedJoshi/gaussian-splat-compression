@@ -34,7 +34,7 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 2 (done):** Benchmarking harness measuring rate-distortion on held-out views across PLY, SPLAT, and PngCompression codecs.
 
-**Milestone 3 (planned):** SH quantization — first measured compression improvement.
+**Milestone 3 (done):** Configurable vector quantization for higher-order SH coefficients, measured at 256, 1,024, and 4,096 codebook entries.
 
 **Milestone 4 (planned):** Contribution-based pruning.
 
@@ -42,9 +42,9 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 ### Known constraints
 
-`PngCompression` (gsplat's codec) requires ≥65,536 Gaussians due to K-means clustering. Truck scene (1M Gaussians) has ~15x headroom before this becomes a bottleneck.
+Stock `PngCompression` requires at least 65,536 Gaussians because its SH codebook has 65,536 entries. The Milestone 3 codecs lower that floor to their configured codebook size; PLAS sorting still requires at least 256 Gaussians.
 
-Baseline: PngCompression 16.3 MB (14.52x vs. raw `.ply`), retains SH but requires GPU. `.splat` format 32 MB (7.38x) but discards view-dependent color.
+All PNG-family codecs require a CUDA GPU for encoding. The `.splat` format is CPU-only and 32 MB (7.38×), but discards view-dependent color.
 
 ## Baseline (Tanks and Temples truck, RTX 4050)
 
@@ -58,10 +58,25 @@ Baseline: PngCompression 16.3 MB (14.52x vs. raw `.ply`), retains SH but require
 | Gaussian count | 1,000,000 |
 | `.ply` size | 236.0 MB |
 | `.splat` size | 32.0 MB |
-| PngCompression size | 16.3 MB |
+| PngCompression size | 16.21 MB |
 | Rendering | 60 fps (vsync-limited) |
 
-Pipeline reproduces these metrics within measurement tolerance (PSNR ±0.05 dB, SSIM ±0.002, LPIPS ±0.005).
+Pipeline reproduces the training metrics within measurement tolerance (PSNR ±0.05 dB, SSIM ±0.002, LPIPS ±0.005).
+
+## Milestone 3 result
+
+The truck benchmark used the same 1,000,000-Gaussian PLY and 32 held-out views for every codec. PNG-family encodes used seed 42. Sizes are decimal MB; ratios use the exact 236,001,478-byte PLY as the anchor.
+
+| Codec | Bytes | Size | Ratio | PSNR | SSIM | LPIPS |
+|---|---:|---:|---:|---:|---:|---:|
+| PLY | 236,001,478 | 236.00 MB | 1.00× | 24.400 | 0.8581 | 0.1375 |
+| SPLAT | 32,000,000 | 32.00 MB | 7.38× | 23.251 | 0.8362 | 0.1599 |
+| PngCompression | 16,212,775 | 16.21 MB | 14.56× | 24.314 | 0.8555 | 0.1402 |
+| SH VQ, 256 entries | 13,675,073 | 13.68 MB | 17.26× | 24.107 | 0.8513 | 0.1453 |
+| SH VQ, 1,024 entries | 14,183,988 | 14.18 MB | 16.64× | 24.195 | 0.8528 | 0.1437 |
+| SH VQ, 4,096 entries | 14,526,458 | 14.53 MB | 16.25× | 24.251 | 0.8539 | 0.1425 |
+
+The 4,096-entry point is the conservative improvement: 10.40% smaller than stock `PngCompression` with a 0.063 dB PSNR reduction. The encoder uses 6-bit, per-component codebook quantization and the narrowest safe label type. It changes only higher-order SH storage; geometry, opacity, DC color, and spatial sorting remain on the baseline path.
 
 ## Setup (Windows)
 
@@ -96,7 +111,7 @@ Outputs: `out/truck/artifacts/{scene.ply, scene.splat}`, `manifest.json`, config
 
 Benchmark codecs against held-out views:
 ```bat
-.venv\Scripts\splatpipe.exe bench out/truck --scene data/tandt/truck --codecs ply,splat,png
+.venv\Scripts\splatpipe.exe bench out/truck --scene data\tandt\truck --codecs ply,splat,png,shvq256,shvq1024,shvq4096
 ```
 
 Outputs: `out/truck/curve.json`, `curve.png`.
@@ -112,10 +127,10 @@ Fast tier (CPU, no MSVC):
 
 Full tier (GPU, trains twice):
 ```bat
-cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q"
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Fast: 116 tests. Full: 119 tests (includes 3 GPU runs).
+Expected counts after Milestone 3: 167 fast tests with 12 GPU tests deselected; 179 tests in the complete tier.
 
 ## Repository layout
 
@@ -135,7 +150,7 @@ Fast: 116 tests. Full: 119 tests (includes 3 GPU runs).
 |---|---|
 | 1. Training pipeline | Done |
 | 2. Benchmarking harness | Done |
-| 3. SH quantization | Planned |
+| 3. SH quantization | Done |
 | 4. Contribution pruning | Planned |
 | 5. Container format | Planned |
 | 6. Viewer integration | Planned |

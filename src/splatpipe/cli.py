@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--test-every", type=int, default=8)
     bench.add_argument(
         "--codecs",
-        default="ply,splat,png",
+        default="ply,splat,png,shvq256,shvq1024,shvq4096",
         help="comma-separated codec names in measurement order. The first is the anchor.",
     )
 

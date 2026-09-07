@@ -1,9 +1,4 @@
-"""The record of what a run actually did.
-
-Every artifact directory carries one of these. It is what makes a point on the
-rate-distortion curve traceable back to the settings that produced it, which is
-the difference between a measurement and a number.
-"""
+"""Traceable metadata for pipeline runs and artifacts."""
 
 from __future__ import annotations
 
@@ -42,13 +37,21 @@ class ArtifactRecord:
 
 def _git_commit() -> str:
     try:
-        return subprocess.run(
+        commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
             cwd=Path(__file__).resolve().parent,
         ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parent,
+        ).stdout.strip()
+        return f"{commit}-dirty" if dirty else commit
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
 
@@ -67,9 +70,7 @@ def collect_versions() -> dict[str, str]:
     for name in ("torch", "gsplat"):
         try:
             versions[name] = __import__(name).__version__
-        # Deliberately broad: a manifest must never fail a run over a version
-        # string. The cost is that a broken install and an absent one both
-        # record "not-imported", which is acceptable for an informational field.
+        # Version discovery must not make an otherwise valid run fail.
         except Exception:  # noqa: BLE001
             versions[name] = "not-imported"
     return versions

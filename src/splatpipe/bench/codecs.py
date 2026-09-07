@@ -1,17 +1,9 @@
-"""What a rate-distortion point is made of.
-
-A codec turns a GaussianCloud into files on disk and back. The rate is the
-total size of those files; the distortion is whatever rendering the decoded
-cloud costs in image quality.
-
-Directory-based rather than bytes-based because PngCompression genuinely
-produces eight files, and flattening them into one blob would misreport the
-rate, which is the single number this component exists to measure. A codec that
-produces one buffer satisfies this protocol by writing one file.
-"""
+"""Codecs measured by the rate-distortion benchmark."""
 
 from __future__ import annotations
 
+import os
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -21,32 +13,13 @@ from splatpipe.gaussians import GaussianCloud, read_ply, write_ply
 
 
 def directory_size(directory: Path) -> int:
-    """Total bytes of every file under `directory`, recursively.
-
-    Two kinds of path return 0 rather than raising, both because rglob yields
-    nothing for them: a directory that does not exist, and a path that is a
-    file. A caller that needs either to be an error has to check for itself.
-    Every codec in this module creates its target directory in encode, so a 0
-    from a codec's size() means the directory is there and empty.
-    """
+    """Return the recursive size of a codec directory."""
     return sum(p.stat().st_size for p in Path(directory).rglob("*") if p.is_file())
 
 
 @runtime_checkable
 class Codec(Protocol):
-    """`name` is a scratch directory name as well as a label, so it has to be unique.
-
-    `encode` owns its target directory and creates it when it is missing, rather
-    than requiring the caller to. That is the half of the contract the
-    implementations disagreed about: `write_ply` creates the parent itself, so
-    PlyCodec worked into a missing directory while SplatCodec raised
-    FileNotFoundError. Task 9's `run_bench` calls mkdir before every encode
-    (plan line 1623), so that caller tolerates either convention. Task 6's
-    test_render_uses_the_clouds_own_sh_degree does not: it encodes into an
-    uncreated `tmp_path / "splat"` (plan line 848), which is the call the splat
-    side raised on. That caller is what makes this mandatory rather than a
-    preference.
-    """
+    """Encode into an owned directory and decode back to a GaussianCloud."""
 
     name: str
 
@@ -58,13 +31,11 @@ class Codec(Protocol):
 
 
 class PlyCodec:
-    """The lossless anchor. Its point is the 1.00x origin of every ratio."""
+    """Lossless PLY anchor."""
 
     name = "ply"
 
     def encode(self, cloud: GaussianCloud, directory: Path) -> None:
-        # No mkdir here: write_ply creates the parent, which is what satisfies
-        # the protocol's contract for this codec.
         write_ply(cloud, Path(directory) / "scene.ply")
 
     def decode(self, directory: Path) -> GaussianCloud:
@@ -95,28 +66,26 @@ class SplatCodec:
 
 
 class PngCodec:
-    """gsplat's own PngCompression, the baseline this project has to beat.
-
-    Quantises to PNG images with a PLAS spatial sort, and vector-quantises the
-    higher-order harmonics with K-means. Needs cupy, torchpq and plas, and needs
-    a GPU: there is no CPU path.
-    """
+    """GPU-backed gsplat PngCompression baseline."""
 
     name = "png"
 
-    def __init__(self, use_sort: bool = True) -> None:
+    def __init__(self, use_sort: bool = True, seed: int = 42) -> None:
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise ConfigError(f"seed must be a non-negative integer, got {seed!r}")
         self.use_sort = use_sort
+        self.seed = seed
+
+    def _make_compressor(self):
+        from gsplat.compression import PngCompression
+
+        return PngCompression(use_sort=self.use_sort, verbose=False)
 
     def encode(self, cloud: GaussianCloud, directory: Path) -> None:
         import torch
-        from gsplat.compression import PngCompression
+        from splatpipe.compress.sh import seeded_compression
 
         Path(directory).mkdir(parents=True, exist_ok=True)
-        # No .copy() here. from_numpy shares memory with the caller's array, but
-        # .cuda() then allocates a separate device tensor, so nothing compress()
-        # does can reach the caller. Measured against this gsplat build by
-        # deleting the six .copy() calls the brief specified: all six arrays came
-        # back byte-identical, so the copies were decorative.
         splats = {
             "means": torch.from_numpy(cloud.means).cuda(),
             "scales": torch.from_numpy(cloud.scales).cuda(),
@@ -125,14 +94,16 @@ class PngCodec:
             "sh0": torch.from_numpy(cloud.sh0).unsqueeze(1).cuda(),
             "shN": torch.from_numpy(cloud.shN).cuda(),
         }
-        PngCompression(use_sort=self.use_sort, verbose=False).compress(
-            str(directory), splats
-        )
+        with (
+            seeded_compression(self.seed),
+            open(os.devnull, "w", encoding="utf-8") as sink,
+            redirect_stdout(sink),
+            redirect_stderr(sink),
+        ):
+            self._make_compressor().compress(str(directory), splats)
 
     def decode(self, directory: Path) -> GaussianCloud:
-        from gsplat.compression import PngCompression
-
-        splats = PngCompression(verbose=False).decompress(str(directory))
+        splats = self._make_compressor().decompress(str(directory))
         cloud = GaussianCloud(
             means=splats["means"].cpu().numpy().astype("float32"),
             scales=splats["scales"].cpu().numpy().astype("float32"),
@@ -148,19 +119,47 @@ class PngCodec:
         return directory_size(directory)
 
 
+class ShVqCodec(PngCodec):
+    """PngCompression with a smaller, seeded SH vector codebook."""
+
+    def __init__(
+        self,
+        n_clusters: int,
+        codebook_bits: int = 6,
+        use_sort: bool = True,
+        seed: int = 42,
+    ) -> None:
+        from splatpipe.compress.sh import label_dtype, validate_codebook_bits
+
+        label_dtype(n_clusters)
+        validate_codebook_bits(codebook_bits)
+        self.n_clusters = n_clusters
+        self.codebook_bits = codebook_bits
+        super().__init__(use_sort=use_sort, seed=seed)
+        self.name = f"shvq{n_clusters}"
+
+    def _make_compressor(self):
+        from splatpipe.compress.sh import make_sh_vq_compressor
+
+        return make_sh_vq_compressor(
+            n_clusters=self.n_clusters,
+            codebook_bits=self.codebook_bits,
+            use_sort=self.use_sort,
+        )
+
+
 CODECS = {
     "ply": PlyCodec,
     "splat": SplatCodec,
     "png": PngCodec,
+    "shvq256": lambda: ShVqCodec(256),
+    "shvq1024": lambda: ShVqCodec(1024),
+    "shvq4096": lambda: ShVqCodec(4096),
 }
 
 
-def build_codecs(names: str) -> list:
-    """Build codecs from a comma-separated name list, preserving order.
-
-    Order is significant: the first codec is the anchor whose size is the
-    denominator of every ratio, so it should be a lossless one.
-    """
+def build_codecs(names: str) -> list[Codec]:
+    """Build codecs in measurement order; the first is the ratio anchor."""
     selected = [name.strip() for name in names.split(",") if name.strip()]
     if not selected:
         raise ConfigError("no codecs selected")
