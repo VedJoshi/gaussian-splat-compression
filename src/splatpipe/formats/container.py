@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import io
+import json
 import math
+import struct
 import zlib
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 from splatpipe.compress.quantize import PackedField, quantize_affine
 from splatpipe.errors import ArtifactError, ConfigError
 from splatpipe.gaussians import GaussianCloud
+from splatpipe.manifest import collect_versions
 
 
 def _encode_raw(data: bytes) -> bytes:
@@ -263,3 +267,162 @@ def unpack_scene(scene: PackedScene) -> GaussianCloud:
     )
     cloud.validate()
     return cloud
+
+
+MAGIC = b"SPLATC"
+VERSION_MAJOR = 1
+VERSION_MINOR = 0
+PREFIX_LEN = 24
+# Eight bytes covers every typed-array view a viewer can take over the payload.
+# Uint16Array at an odd offset throws in JavaScript, so this is not cosmetic.
+ALIGNMENT = 8
+_PREFIX = "<6sBBIIQ"
+DEFAULT_CODEC = "deflate"
+
+
+def _pad_to(length: int) -> int:
+    return (-length) % ALIGNMENT
+
+
+def write_container(
+    scene: PackedScene,
+    path: Path | str,
+    codecs: dict[str, str] | None = None,
+) -> None:
+    codecs = dict(codecs or {})
+    unknown = set(codecs) - set(scene.fields)
+    if unknown:
+        raise ConfigError(
+            f"codec given for unknown block(s): {', '.join(sorted(unknown))}"
+        )
+
+    blocks = []
+    payload = bytearray()
+    for name, field in scene.fields.items():
+        codec = codecs.get(name, DEFAULT_CODEC)
+        values = np.ascontiguousarray(field.values)
+        raw = values.tobytes()
+        stored = encode_block(raw, codec)
+        payload.extend(bytes(_pad_to(len(payload))))
+        blocks.append(
+            {
+                "name": name,
+                "codec": codec,
+                "offset": len(payload),
+                "length": len(stored),
+                "raw_length": len(raw),
+                "crc32": zlib.crc32(stored) & 0xFFFFFFFF,
+                "dtype": values.dtype.name,
+                "stored_shape": list(values.shape),
+                "shape": list(field.shape),
+                "bits": field.bits,
+                "mins": [float(v) for v in np.ravel(field.mins)],
+                "maxs": [float(v) for v in np.ravel(field.maxs)],
+            }
+        )
+        payload.extend(stored)
+
+    descriptor = {
+        "count": int(scene.count),
+        "sh_degree": int(scene.sh_degree),
+        "order": scene.order,
+        "versions": collect_versions(),
+        "blocks": blocks,
+    }
+    encoded = json.dumps(descriptor, separators=(",", ":")).encode("utf-8")
+    # Padded with spaces, not NULs: JSON.parse tolerates trailing whitespace and
+    # rejects NUL, and the viewer parses this slice directly.
+    encoded += b" " * _pad_to(PREFIX_LEN + len(encoded))
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(
+            struct.pack(
+                _PREFIX,
+                MAGIC,
+                VERSION_MAJOR,
+                VERSION_MINOR,
+                len(encoded),
+                zlib.crc32(encoded) & 0xFFFFFFFF,
+                len(payload),
+            )
+        )
+        handle.write(encoded)
+        handle.write(payload)
+
+
+def _read_descriptor(data: bytes) -> tuple[dict, memoryview]:
+    if len(data) < PREFIX_LEN:
+        raise ArtifactError(f"file is {len(data)} bytes, shorter than the header")
+    magic, major, _minor, json_len, json_crc, payload_len = struct.unpack(
+        _PREFIX, data[:PREFIX_LEN]
+    )
+    if magic != MAGIC:
+        raise ArtifactError(f"not a splatc container: magic is {magic!r}")
+    if major != VERSION_MAJOR:
+        raise ArtifactError(
+            f"container major version {major} is not readable by this build, "
+            f"which reads version {VERSION_MAJOR}"
+        )
+    end = PREFIX_LEN + json_len
+    if len(data) < end + payload_len:
+        raise ArtifactError(
+            f"container declares {json_len:,} descriptor and {payload_len:,} payload "
+            f"bytes but holds {len(data):,} in total"
+        )
+    encoded = data[PREFIX_LEN:end]
+    if zlib.crc32(encoded) & 0xFFFFFFFF != json_crc:
+        raise ArtifactError("descriptor checksum does not match its contents")
+    try:
+        descriptor = json.loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ArtifactError(f"descriptor is not valid JSON: {error}") from error
+    return descriptor, memoryview(data)[end : end + payload_len]
+
+
+def container_descriptor(path: Path | str) -> dict:
+    return _read_descriptor(Path(path).read_bytes())[0]
+
+
+def read_container(path: Path | str) -> PackedScene:
+    descriptor, payload = _read_descriptor(Path(path).read_bytes())
+
+    seen: list[tuple[int, int, str]] = []
+    fields: dict[str, PackedField] = {}
+    for block in descriptor["blocks"]:
+        name = block["name"]
+        offset, length = int(block["offset"]), int(block["length"])
+        if offset < 0 or length < 0 or offset + length > len(payload):
+            raise ArtifactError(
+                f"block {name!r} spans {offset:,}..{offset + length:,} "
+                f"outside a {len(payload):,}-byte payload"
+            )
+        seen.append((offset, offset + length, name))
+        stored = bytes(payload[offset : offset + length])
+        if zlib.crc32(stored) & 0xFFFFFFFF != int(block["crc32"]):
+            raise ArtifactError(f"block {name!r} failed its checksum")
+
+        raw = decode_block(stored, block["codec"], int(block["raw_length"]))
+        values = np.frombuffer(raw, dtype=np.dtype(block["dtype"])).reshape(
+            tuple(block["stored_shape"])
+        )
+        fields[name] = PackedField(
+            values=values,
+            bits=int(block["bits"]),
+            mins=np.asarray(block["mins"], dtype=np.float32),
+            maxs=np.asarray(block["maxs"], dtype=np.float32),
+            shape=tuple(block["shape"]),
+        )
+
+    seen.sort()
+    for (_, end, first), (start, _, second) in zip(seen, seen[1:]):
+        if start < end:
+            raise ArtifactError(f"blocks {first!r} and {second!r} overlap")
+
+    return PackedScene(
+        count=int(descriptor["count"]),
+        sh_degree=int(descriptor["sh_degree"]),
+        order=descriptor["order"],
+        fields=fields,
+    )

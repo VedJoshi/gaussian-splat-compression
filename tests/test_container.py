@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import json
+import struct
+
 import numpy as np
 import pytest
 
 from splatpipe.errors import ArtifactError, ConfigError
 from splatpipe.formats.container import (
+    ALIGNMENT,
     BLOCK_CODECS,
     CONTAINER_ORDERS,
+    MAGIC,
+    PREFIX_LEN,
+    VERSION_MAJOR,
+    VERSION_MINOR,
     ShVq,
+    container_descriptor,
     decode_block,
     encode_block,
     pack_scene,
+    read_container,
     unpack_scene,
+    write_container,
 )
 from splatpipe.formats.splat import morton_order
 from tests.test_codecs import a_cloud
@@ -164,3 +175,97 @@ def test_unknown_order_is_rejected():
 
 def test_every_declared_order_is_accepted_or_needs_a_gpu():
     assert CONTAINER_ORDERS == ("none", "morton", "plas")
+
+
+def test_container_round_trips_every_field_byte_exactly(tmp_path):
+    scene = pack_scene(a_cloud(256), order="morton")
+    path = tmp_path / "scene.splatc"
+    write_container(scene, path)
+    back = read_container(path)
+
+    assert back.count == scene.count
+    assert back.sh_degree == scene.sh_degree
+    assert back.order == scene.order
+    assert set(back.fields) == set(scene.fields)
+    for name, field in scene.fields.items():
+        np.testing.assert_array_equal(back.fields[name].values, field.values, err_msg=name)
+        np.testing.assert_array_equal(back.fields[name].mins, field.mins, err_msg=name)
+        np.testing.assert_array_equal(back.fields[name].maxs, field.maxs, err_msg=name)
+        assert back.fields[name].bits == field.bits, name
+        assert back.fields[name].shape == field.shape, name
+
+
+def test_a_container_decodes_back_to_an_equivalent_cloud(tmp_path):
+    scene = pack_scene(a_cloud(256), order="none")
+    path = tmp_path / "scene.splatc"
+    write_container(scene, path)
+    np.testing.assert_array_equal(
+        unpack_scene(read_container(path)).means, unpack_scene(scene).means
+    )
+
+
+def test_the_prefix_is_the_documented_shape(tmp_path):
+    path = tmp_path / "scene.splatc"
+    write_container(pack_scene(a_cloud(64), order="none"), path)
+    prefix = path.read_bytes()[:PREFIX_LEN]
+    magic, major, minor, json_len, json_crc, payload_len = struct.unpack(
+        "<6sBBIIQ", prefix
+    )
+    assert magic == MAGIC
+    assert major == VERSION_MAJOR
+    assert minor == 0
+    assert json_len > 0
+    assert payload_len > 0
+    assert (PREFIX_LEN + json_len) % ALIGNMENT == 0
+
+
+def test_every_block_offset_is_aligned_for_typed_array_views(tmp_path):
+    path = tmp_path / "scene.splatc"
+    write_container(pack_scene(a_cloud(300), order="none"), path)
+    for block in container_descriptor(path)["blocks"]:
+        assert block["offset"] % ALIGNMENT == 0, block["name"]
+
+
+def test_blocks_do_not_overlap_and_stay_inside_the_payload(tmp_path):
+    path = tmp_path / "scene.splatc"
+    write_container(pack_scene(a_cloud(300), order="none"), path)
+    descriptor = container_descriptor(path)
+    extents = sorted(
+        (block["offset"], block["offset"] + block["length"])
+        for block in descriptor["blocks"]
+    )
+    for (_, end), (start, _) in zip(extents, extents[1:]):
+        assert start >= end
+    payload_len = struct.unpack("<Q", path.read_bytes()[16:24])[0]
+    assert extents[-1][1] <= payload_len
+
+
+def test_the_descriptor_records_provenance_and_parses_as_json(tmp_path):
+    path = tmp_path / "scene.splatc"
+    write_container(pack_scene(a_cloud(64), order="morton"), path)
+    descriptor = container_descriptor(path)
+    assert descriptor["order"] == "morton"
+    assert descriptor["count"] == 64
+    assert descriptor["sh_degree"] == 3
+    assert "splatpipe" in descriptor["versions"]
+
+
+def test_explicit_codecs_are_honoured_and_recorded(tmp_path):
+    path = tmp_path / "scene.splatc"
+    scene = pack_scene(a_cloud(64), order="none")
+    write_container(scene, path, codecs={"means": "raw", "scales": "deflate"})
+    codecs = {b["name"]: b["codec"] for b in container_descriptor(path)["blocks"]}
+    assert codecs["means"] == "raw"
+    assert codecs["scales"] == "deflate"
+    np.testing.assert_array_equal(
+        read_container(path).fields["means"].values, scene.fields["means"].values
+    )
+
+
+def test_a_codec_for_an_unknown_block_is_rejected(tmp_path):
+    with pytest.raises(ConfigError):
+        write_container(
+            pack_scene(a_cloud(64), order="none"),
+            tmp_path / "scene.splatc",
+            codecs={"nonexistent": "raw"},
+        )

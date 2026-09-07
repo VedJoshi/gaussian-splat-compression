@@ -30,3 +30,11 @@ def test_ensure_creates_every_directory(tmp_path):
     paths.ensure()
     for directory in (paths.root, paths.train_dir, paths.artifacts_dir, paths.logs_dir):
         assert directory.is_dir()
+
+
+def test_container_paths_sit_under_their_own_directory():
+    paths = RunPaths.for_run("out", "truck")
+    assert paths.container_dir == paths.root / "container"
+    assert paths.container == paths.container_dir / "scene.splatc"
+    assert paths.container_curve_json == paths.container_dir / "curve.json"
+    assert paths.container_meta == paths.container_dir / "meta.json"
