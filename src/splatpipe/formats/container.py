@@ -161,6 +161,22 @@ def _permutation(cloud: GaussianCloud, order: str) -> np.ndarray | None:
     return indices.cpu().numpy().reshape(-1)
 
 
+def log_transform(values: np.ndarray) -> np.ndarray:
+    """gsplat's own means transform, matched exactly so the PNG baseline and the
+    container quantise the same numbers.
+
+    Truck's means span [-5720, 8781] because of a handful of stray Gaussians,
+    while 99.9% of the scene lies within +/-24. Quantising that raw range at 16
+    bits costs 0.04 units of position RMS, which is several splat widths, and
+    renders at 13.6 dB. In log space the same 16 bits cost ~1e-4 units.
+    """
+    return np.sign(values) * np.log1p(np.abs(values))
+
+
+def inverse_log_transform(values: np.ndarray) -> np.ndarray:
+    return np.sign(values) * np.expm1(np.abs(values))
+
+
 def _packed(values: np.ndarray, bits: int) -> PackedField:
     """Store flattened (N, C) values; PackedField.shape restores the rank."""
     quantized, mins, maxs = quantize_affine(values.reshape(len(values), -1), bits)
@@ -205,10 +221,11 @@ def pack_scene(
         if labels is not None:
             labels = labels[permutation]
 
-    fields = {
-        name: _packed(getattr(cloud, name), FIELD_BITS[name])
-        for name in ("means", "scales", "quats", "opacities", "sh0")
-    }
+    fields = {"means": _packed(log_transform(cloud.means), FIELD_BITS["means"])}
+    fields.update(
+        (name, _packed(getattr(cloud, name), FIELD_BITS[name]))
+        for name in ("scales", "quats", "opacities", "sh0")
+    )
     if sh_vq is None:
         fields["shN"] = _packed(cloud.shN, FIELD_BITS["shN"])
     else:
@@ -258,7 +275,7 @@ def unpack_scene(scene: PackedScene) -> GaussianCloud:
         raise ArtifactError("container has neither an shN block nor a codebook pair")
 
     cloud = GaussianCloud(
-        means=fields["means"].dequantize(),
+        means=inverse_log_transform(fields["means"].dequantize()),
         scales=fields["scales"].dequantize(),
         quats=fields["quats"].dequantize(),
         opacities=fields["opacities"].dequantize(),

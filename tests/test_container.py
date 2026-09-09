@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import struct
 import zlib
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -91,6 +92,16 @@ def test_means_are_stored_at_sixteen_bits_and_the_rest_at_eight():
         assert scene.fields[name].values.dtype == np.uint8, name
 
 
+def means_bound(means: np.ndarray) -> float:
+    """Half a level of the 16-bit grid, which means occupy in log space, mapped
+    back to linear by expm1's local slope of 1 + |x|."""
+    from splatpipe.formats.container import log_transform
+
+    warped = log_transform(means)
+    step = float(warped.max() - warped.min()) / (2 * 65535)
+    return step * (1.0 + float(np.abs(means).max())) + 1e-6
+
+
 def test_morton_order_permutes_the_stored_gaussians():
     cloud = a_cloud(128)
     scene = pack_scene(cloud, order="morton")
@@ -100,10 +111,10 @@ def test_morton_order_permutes_the_stored_gaussians():
     # Morton is a permutation, so the recovered means match the permuted cloud
     # position for position, within quantisation error, and are a permutation of
     # the original set rather than the original ordering.
-    span = cloud.means.max() - cloud.means.min()
-    assert np.abs(back.means - expected.means).max() <= span / (2 * 65535) + 1e-6
+    bound = means_bound(cloud.means)
+    assert np.abs(back.means - expected.means).max() <= bound
     np.testing.assert_allclose(
-        np.sort(back.means, axis=0), np.sort(cloud.means, axis=0), atol=span / 65535 + 1e-6
+        np.sort(back.means, axis=0), np.sort(cloud.means, axis=0), atol=2 * bound
     )
 
 
@@ -410,3 +421,19 @@ def test_an_unknown_codec_on_a_required_block_is_refused(tmp_path):
     _rewrite_descriptor(path, mutate)
     with pytest.raises(ConfigError, match="unknown block codec"):
         read_container(path)
+
+
+def test_means_survive_the_outliers_a_real_scene_carries():
+    """Truck's means span [-5720, 8781] while 99.9% of the scene lies within
+    +/-24. Quantising that raw range at 16 bits costs 0.04 units of position
+    RMS, several splat widths, and rendered at 13.6 dB against PLY's 24.4.
+    The log transform is what keeps the near field exact, so pin it here."""
+    cloud = a_cloud(256)
+    means = cloud.means.copy()
+    means[0] = [-5720.0, 8781.0, 4000.0]
+    cloud = replace(cloud, means=means)
+
+    back = unpack_scene(pack_scene(cloud, order="none"))
+    near = np.abs(cloud.means[1:]).max(axis=1) < 2.0
+    assert near.sum() > 200
+    assert np.abs(back.means[1:][near] - cloud.means[1:][near]).max() < 1e-3
