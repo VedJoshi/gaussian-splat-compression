@@ -38,7 +38,9 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 4 (done):** Occlusion-aware contribution pruning, an opacity ablation, and a measured retained-count sweep.
 
-**Milestone 5–8 (planned):** Container format, viewer, multi-scene evaluation, writeup.
+**Milestone 5 (done):** A single-file `.splatc` container with typed, checksummed, independently addressable blocks, a reference JavaScript decoder, and a staged measurement of block codec, ordering and layout.
+
+**Milestone 6–8 (planned):** Viewer, multi-scene evaluation, writeup.
 
 ### Known constraints
 
@@ -96,6 +98,51 @@ The selected 80% raw point removes 200,000 Gaussians for changes of -0.0087 dB P
 
 Combined with `shvq4096`, the selected point is 11.92 MB and 19.80x smaller than PLY. It is 26.48% smaller than seeded stock `PngCompression` for a -0.0506 dB PSNR change, and 17.94% smaller than the same-run unpruned `shvq4096`. PNG-family square cropping accounts for the decoded count of 799,236 rather than exactly 800,000.
 
+## Milestone 5 result
+
+The container replaces the directory of PNGs that `PngCompression` emits with one `.splatc` file: a 24-byte prefix, a JSON descriptor, then 8-byte-aligned blocks that each declare their own codec and carry their own CRC-32. A dependency-free JavaScript decoder reads it under Node and in Chromium, and a canvas round-trip test confirms PNG blocks survive the browser image pipeline byte-exactly, so `png` is usable as a block codec.
+
+To separate the container from the SH scheme, it reuses the codebook `shvq4096` already fitted rather than clustering its own. The baseline stores its labels in PLAS-sorted order and does not record the sort, so labels are reassigned to the nearest centroid under the same manhattan distance; the codebook, its 6-bit quantization and its per-component bounds are taken verbatim from the baseline artifact.
+
+All three points below come from one run over the same 1,000,000-Gaussian PLY and the same 32 held-out views.
+
+| Codec | Bytes | Ratio | PSNR | SSIM | LPIPS | Encode | Decode |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| PLY | 236,001,478 | 1.00x | 24.400 | 0.8581 | 0.1375 | 1.8 s | 1.6 s |
+| SH VQ, 4,096 entries | 14,526,917 | 16.25x | 24.256 | 0.8539 | 0.1425 | 119.8 s | 1.2 s |
+| `.splatc` container | 16,594,830 | 14.22x | 24.246 | 0.8538 | 0.1427 | 30.8 s | 0.7 s |
+
+**The container does not beat the baseline on size.** It is 14.22x smaller than PLY, but 14.24% larger than the `shvq4096` directory it replaces, for a PSNR difference of 0.010 dB. Quality matching to that margin is the intended result: both paths dequantize the identical codebook, so the container reproduces the baseline's SH rather than approximating it. Encode is 3.9x faster because the codebook is reused instead of refitted, and decode is 1.8x faster.
+
+The 16,594,830-byte figure is the benchmark's container, which applies `deflate` uniformly. Selecting the measured best codec per block gives 16,427,638 bytes, and `plas` ordering with per-block selection gives 15,368,018 bytes, 5.79% above the baseline. Block codecs are lossless, so all three decode to identical values and the quality row is unchanged.
+
+### Where the bytes go
+
+Block sizes under the selected codec, against the corresponding file in the baseline directory:
+
+| Block | Container | Codec | Baseline | Difference |
+|---|---:|---|---:|---:|
+| means | 5,423,375 | deflate | 4,671,912 | +16.08% |
+| scales | 2,445,791 | deflate | 1,756,541 | +39.24% |
+| quats | 3,488,279 | deflate | 3,686,653 | -5.38% |
+| opacities | 796,293 | deflate | 602,131 | +32.25% |
+| sh0 | 2,506,679 | png | 2,056,608 | +21.88% |
+| SH codebook + labels | 1,763,189 | png, deflate | 1,749,469 | +0.78% |
+
+The SH blocks match, confirming the codebook was reused rather than refitted. The gap is in the five per-Gaussian attribute blocks, and its cause is measured rather than inferred: the baseline writes each attribute as a PNG over the PLAS-sorted 1,000x1,000 grid, so a pixel and the pixel above it are spatial neighbours and PNG's row filters have something to predict from. The container's `png` block codec instead lays bytes into a square-ish grid sized from the byte count alone, so rows cut across Gaussian boundaries and vertical coherence is destroyed. That is why `deflate` beats `png` on four of five attribute blocks here, and why the baseline's PNGs beat both.
+
+### Resolved design questions
+
+- **Struct-of-arrays beats array-of-structs**, 16,427,638 against 17,954,482 bytes, 8.50% smaller. Per-attribute blocks also keep each field independently addressable, which the viewer needs.
+- **Ordering matters and PLAS wins**: 16,640,542 bytes unsorted, 16,427,638 Morton, 15,392,546 PLAS. Morton remains the container's default because PLAS crops to a square grid, which is what makes the baseline decode 799,236 of 800,000 pruned Gaussians. The container stores the exact count it is given.
+- **Ordering does not change which codec wins a block.** Selecting per-block codecs against a PLAS-packed scene rather than a Morton-packed one produces the identical assignment, so the staged measurement's codec-then-ordering sequence is sound.
+- **Splitting 16-bit means into high and low byte planes** stores 4,779,319 bytes against 5,423,375 interleaved, 11.88% smaller. It is measured but not adopted; adopting it is a format change and belongs with the PNG grid fix.
+- **Means must be quantized in log space.** Truck's means span [-5720, 8781] because of a handful of stray Gaussians while 99.9% of the scene lies within +/-24. Quantizing that raw range at 16 bits gave 0.043 units of position RMS, several splat widths, and rendered at 13.580 dB against PLY's 24.400. Applying `sign(x) * log1p(|x|)` first, which is what `PngCompression` already does, cut the RMS to 0.00059 and recovered the 24.246 dB above.
+
+### Limitations
+
+The container is not yet competitive on size, and the identified cause is the PNG block codec's grid shape rather than anything structural in the format. The measurement was run on the unpruned 1,000,000-Gaussian cloud, so the 11,920,255-byte pruned composition from Milestone 4 is not directly comparable; combining pruning with the container is untested. Seeded CUDA K-means remains reproducible but not bit-deterministic, and `shvq4096` measured 14,526,917 bytes here against 14,526,288 in Milestone 3.
+
 ## Setup (Windows)
 
 Prerequisites (fixed paths):
@@ -140,6 +187,25 @@ Measure contribution pruning and its opacity ablation:
 ```
 
 Outputs: `out/truck/pruning/{scores.npz, meta.json, curve.json, curve.png}` and per-point codec directories under `out/truck/pruning/bench/`.
+
+Measure the container's block codecs, ordering and layout:
+```bat
+.venv\Scripts\splatpipe.exe pack out\truck --orders none,morton,plas --candidates raw,deflate,png --sh-codebook out\truck\pruning\bench\shvq4096
+```
+
+Outputs: `out/truck/container/{scene.splatc, meta.json}`.
+
+Score the container against held-out views without overwriting the Milestone 2/3 curve:
+```bat
+.venv\Scripts\splatpipe.exe bench out\truck --scene data\tandt\truck --codecs ply,shvq4096,container --sh-codebook out\truck\pruning\bench\shvq4096 --output-namespace container
+```
+
+Outputs: `out/truck/container/{curve.json, curve.png}`.
+
+Read a container from JavaScript:
+```bat
+node scripts\decode_container.mjs out\truck\container\scene.splatc out\truck\container\decoded.json
+```
 
 Add `--skip-train` to re-export without retraining.
 
