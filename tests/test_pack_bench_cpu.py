@@ -77,6 +77,7 @@ def test_pack_bench_writes_its_metadata_and_leaves_other_curves_alone(tmp_path):
         "layouts",
         "means_split",
         "selected_bytes",
+        "sh_codebook",
         "source_gaussians",
     }
     meta = json.loads(paths.container_meta.read_text(encoding="utf-8"))
@@ -122,3 +123,46 @@ def test_bench_namespace_flag_keeps_the_existing_curve(tmp_path, monkeypatch):
     )
     assert (paths.root / "curve.json").read_text(encoding="utf-8") == sentinel
     assert paths.container_curve_json.is_file()
+
+
+def test_a_baseline_codebook_round_trips_out_of_its_artifact_directory(tmp_path):
+    """The container reuses the PNG baseline's own codebook so the two are
+    measured on identical SH. Only the bounds and centroids come from disk;
+    the labels do not, because the baseline stores them PLAS-sorted."""
+    from splatpipe.compress.sh import load_sh_codebook
+
+    rng = np.random.default_rng(0)
+    centroids = rng.integers(0, 64, (32, 45), dtype=np.uint8)
+    mins = rng.uniform(-1, 0, 45).astype(np.float32)
+    maxs = rng.uniform(0, 1, 45).astype(np.float32)
+    np.savez_compressed(
+        tmp_path / "shN.npz", centroids=centroids, labels=np.zeros(4, dtype=np.uint8)
+    )
+    (tmp_path / "meta.json").write_text(
+        json.dumps(
+            {
+                "shN": {
+                    "mins": mins.tolist(),
+                    "maxs": maxs.tolist(),
+                    "quantization": 6,
+                    "n_clusters": 32,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    stored, read_mins, read_maxs, bits = load_sh_codebook(tmp_path)
+    assert bits == 6
+    np.testing.assert_array_equal(stored, centroids)
+    np.testing.assert_allclose(read_mins, mins)
+    np.testing.assert_allclose(read_maxs, maxs)
+
+
+def test_a_directory_without_an_sh_block_is_rejected(tmp_path):
+    from splatpipe.compress.sh import load_sh_codebook
+
+    np.savez_compressed(tmp_path / "shN.npz", centroids=np.zeros((2, 3), np.uint8))
+    (tmp_path / "meta.json").write_text('{"means": {}}', encoding="utf-8")
+    with pytest.raises(ArtifactError, match="not an shvq run"):
+        load_sh_codebook(tmp_path)

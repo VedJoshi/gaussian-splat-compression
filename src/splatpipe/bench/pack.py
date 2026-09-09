@@ -46,12 +46,12 @@ def _container_bytes(scene, codecs: dict, tmp: Path) -> int:
     return tmp.stat().st_size
 
 
-def measure_orders(cloud, orders, codecs, tmp_dir: Path | None = None) -> dict:
+def measure_orders(cloud, orders, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
     measured = {}
     with tempfile.TemporaryDirectory(dir=tmp_dir) as scratch:
         target = Path(scratch) / "probe.splatc"
         for order in orders:
-            scene = pack_scene(cloud, order=order)
+            scene = pack_scene(cloud, sh_vq=sh_vq, order=order)
             size = _container_bytes(scene, codecs, target)
             measured[order] = {
                 "bytes": size,
@@ -63,9 +63,9 @@ def measure_orders(cloud, orders, codecs, tmp_dir: Path | None = None) -> dict:
     return measured
 
 
-def measure_layouts(cloud, codecs, tmp_dir: Path | None = None) -> dict:
+def measure_layouts(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
     """Per-attribute blocks against one interleaved block of the same values."""
-    scene = pack_scene(cloud, order="morton")
+    scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
     with tempfile.TemporaryDirectory(dir=tmp_dir) as scratch:
         target = Path(scratch) / "probe.splatc"
         struct_of_arrays = _container_bytes(scene, codecs, target)
@@ -88,9 +88,9 @@ def measure_layouts(cloud, codecs, tmp_dir: Path | None = None) -> dict:
     }
 
 
-def measure_means_split(cloud, codecs, tmp_dir: Path | None = None) -> dict:
+def measure_means_split(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
     """uint16 means interleaved, against separate high and low byte planes."""
-    scene = pack_scene(cloud, order="morton")
+    scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
     values = np.ascontiguousarray(scene.fields["means"].values)
     codec = codecs.get("means", DEFAULT_CODEC)
     interleaved = len(encode_block(values.tobytes(), codec))
@@ -106,6 +106,7 @@ def run_pack_bench(
     run_dir: Path,
     orders: tuple[str, ...] = ("none", "morton"),
     candidates: tuple[str, ...] = CANDIDATE_CODECS,
+    sh_codebook: Path | str | None = None,
 ) -> dict:
     paths = RunPaths(root=Path(run_dir))
     if not paths.ply.is_file():
@@ -114,17 +115,24 @@ def run_pack_bench(
     cloud = read_ply(paths.ply)
     paths.container_dir.mkdir(parents=True, exist_ok=True)
 
-    scene = pack_scene(cloud, order="morton")
+    sh_vq = None
+    if sh_codebook is not None:
+        from splatpipe.compress.sh import sh_vq_from_baseline
+
+        sh_vq = sh_vq_from_baseline(sh_codebook, cloud.shN)
+
+    scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
     block_codecs = measure_block_codecs(scene, candidates)
     selected = best_codecs(block_codecs)
 
     result = {
         "source_gaussians": len(cloud),
+        "sh_codebook": None if sh_codebook is None else str(sh_codebook),
         "block_codecs": block_codecs,
         "best_codecs": selected,
-        "orders": measure_orders(cloud, orders, selected),
-        "layouts": measure_layouts(cloud, selected),
-        "means_split": measure_means_split(cloud, selected),
+        "orders": measure_orders(cloud, orders, selected, sh_vq),
+        "layouts": measure_layouts(cloud, selected, sh_vq),
+        "means_split": measure_means_split(cloud, selected, sh_vq),
         "selected_bytes": 0,
     }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
@@ -195,3 +196,78 @@ def seeded_compression(seed: int):
         np.random.set_state(numpy_state)
         torch.random.set_rng_state(torch_state)
         torch.cuda.set_rng_state_all(cuda_states)
+
+
+def load_sh_codebook(directory: Path | str) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Read the quantised centroids and their bounds out of an shvq artifact
+    directory, so the container can be measured against the same codebook the
+    PNG baseline was measured with rather than a freshly clustered one."""
+    directory = Path(directory)
+    meta_path = directory / "meta.json"
+    if not meta_path.is_file():
+        raise ArtifactError(f"{directory} holds no meta.json")
+    archive_path = directory / "shN.npz"
+    if not archive_path.is_file():
+        raise ArtifactError(f"{directory} holds no shN.npz codebook")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8")).get("shN")
+    if meta is None:
+        raise ArtifactError(f"{meta_path} records no shN block, so it is not an shvq run")
+
+    with np.load(archive_path, allow_pickle=False) as archive:
+        centroids = archive["centroids"]
+
+    bits = int(meta["quantization"])
+    mins = np.asarray(meta["mins"], dtype=np.float32)
+    maxs = np.asarray(meta["maxs"], dtype=np.float32)
+    if mins.shape != (centroids.shape[1],):
+        raise ArtifactError(
+            f"codebook has {centroids.shape[1]} components but "
+            f"{mins.shape[0]} bounds"
+        )
+    return centroids, mins, maxs, bits
+
+
+def assign_sh_labels(shN: np.ndarray, centroids: np.ndarray, chunk: int = 16384) -> np.ndarray:
+    """Nearest centroid per Gaussian under the manhattan distance the codebook
+    was fitted with. This is K-means' own final assignment step, run against a
+    fixed codebook, so every Gaussian keeps a label without reclustering."""
+    import torch
+
+    if shN.ndim != 3:
+        raise ArtifactError(f"shN must be (N, K, 3), got shape {shN.shape}")
+    if centroids.ndim != 2 or centroids.shape[1] != shN.shape[1] * shN.shape[2]:
+        raise ArtifactError(
+            f"codebook of shape {centroids.shape} does not match "
+            f"shN of shape {shN.shape}"
+        )
+
+    flat = np.ascontiguousarray(shN, dtype=np.float32).reshape(len(shN), -1)
+    book = torch.from_numpy(np.ascontiguousarray(centroids, dtype=np.float32)).cuda()
+    labels = np.empty(len(flat), dtype=label_dtype(len(centroids)))
+    for start in range(0, len(flat), chunk):
+        block = torch.from_numpy(flat[start : start + chunk]).cuda()
+        nearest = torch.cdist(block, book, p=1).argmin(dim=1)
+        labels[start : start + chunk] = nearest.cpu().numpy()
+    return labels
+
+
+def sh_vq_from_baseline(directory: Path | str, shN: np.ndarray):
+    """Build the container's ShVq from an existing shvq artifact directory.
+
+    The baseline stores its labels in PLAS-sorted order and the sort is not
+    recorded, so the labels cannot be reused directly. The codebook can, and
+    reassigning against it is what keeps the container's SH identical to the
+    baseline's while preserving every Gaussian.
+    """
+    from splatpipe.formats.container import ShVq
+
+    centroids, mins, maxs, bits = load_sh_codebook(directory)
+    dequantized = dequantize_codebook(centroids, mins, maxs, bits)
+    return ShVq(
+        codebook=centroids,
+        labels=assign_sh_labels(shN, dequantized),
+        mins=mins,
+        maxs=maxs,
+        bits=bits,
+    )

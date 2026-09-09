@@ -190,16 +190,24 @@ class ContainerCodec:
         self,
         order: str = "morton",
         codecs: dict[str, str] | None = None,
+        sh_codebook: Path | str | None = None,
         name: str = "container",
     ) -> None:
         self.order = order
         self.codecs = codecs
+        self.sh_codebook = sh_codebook
         self.name = name
 
     def encode(self, cloud: GaussianCloud, directory: Path) -> None:
         from splatpipe.formats.container import pack_scene, write_container
 
-        scene = pack_scene(cloud, order=self.order)
+        sh_vq = None
+        if self.sh_codebook is not None:
+            from splatpipe.compress.sh import sh_vq_from_baseline
+
+            # Assigned after any pruning upstream, so labels match this cloud.
+            sh_vq = sh_vq_from_baseline(self.sh_codebook, cloud.shN)
+        scene = pack_scene(cloud, sh_vq=sh_vq, order=self.order)
         write_container(scene, Path(directory) / "scene.splatc", codecs=self.codecs)
 
     def decode(self, directory: Path) -> GaussianCloud:
@@ -222,7 +230,7 @@ CODECS = {
 }
 
 
-def build_codecs(names: str) -> list[Codec]:
+def build_codecs(names: str, sh_codebook: Path | str | None = None) -> list[Codec]:
     """Build codecs in measurement order; the first is the ratio anchor."""
     selected = [name.strip() for name in names.split(",") if name.strip()]
     if not selected:
@@ -233,4 +241,9 @@ def build_codecs(names: str) -> list[Codec]:
             f"unknown codec(s) {', '.join(unknown)}. "
             f"Known codecs are: {', '.join(sorted(CODECS))}"
         )
-    return [CODECS[name]() for name in selected]
+    return [
+        ContainerCodec(sh_codebook=sh_codebook)
+        if name == "container" and sh_codebook is not None
+        else CODECS[name]()
+        for name in selected
+    ]

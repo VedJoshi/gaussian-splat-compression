@@ -106,6 +106,12 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated codec names in measurement order. The first is the anchor.",
     )
     bench.add_argument(
+        "--sh-codebook",
+        type=Path,
+        default=None,
+        help="reuse the SH codebook in this shvq artifact directory instead of storing shN per Gaussian",
+    )
+    bench.add_argument(
         "--output-namespace",
         default=None,
         help="write the curve under this subdirectory instead of the run root",
@@ -145,6 +151,12 @@ def main(argv: list[str] | None = None) -> int:
         default="raw,deflate,png",
         help="comma-separated block codecs to try",
     )
+    pack.add_argument(
+        "--sh-codebook",
+        type=Path,
+        default=None,
+        help="reuse the SH codebook in this shvq artifact directory instead of storing shN per Gaussian",
+    )
 
     args = parser.parse_args(argv)
     try:
@@ -157,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             run_bench(
                 args.run_dir,
                 args.scene,
-                build_codecs(args.codecs),
+                build_codecs(args.codecs, sh_codebook=args.sh_codebook),
                 data_factor=args.data_factor,
                 test_every=args.test_every,
                 output_namespace=args.output_namespace,
@@ -184,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidates=tuple(
                     c.strip() for c in args.candidates.split(",") if c.strip()
                 ),
+                sh_codebook=args.sh_codebook,
             )
             print(json.dumps(result["best_codecs"], indent=2))
             print(f"container {result['selected_bytes']:,} bytes")
