@@ -7,6 +7,7 @@ the current working directory and nothing is prompted for.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 import time
@@ -104,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
         default="ply,splat,png,shvq256,shvq1024,shvq4096",
         help="comma-separated codec names in measurement order. The first is the anchor.",
     )
+    bench.add_argument(
+        "--output-namespace",
+        default=None,
+        help="write the curve under this subdirectory instead of the run root",
+    )
 
     prune = subparsers.add_parser(
         "prune", help="rank Gaussians on training views and measure retained-count sweeps"
@@ -125,6 +131,21 @@ def main(argv: list[str] | None = None) -> int:
         help="codecs to measure; png is kept as an unpruned reference",
     )
 
+    pack = subparsers.add_parser(
+        "pack", help="measure container block codecs, ordering and layout"
+    )
+    pack.add_argument("run_dir", type=Path, help="an existing splatpipe run directory")
+    pack.add_argument(
+        "--orders",
+        default="none,morton",
+        help="comma-separated container orderings to sweep",
+    )
+    pack.add_argument(
+        "--candidates",
+        default="raw,deflate,png",
+        help="comma-separated block codecs to try",
+    )
+
     args = parser.parse_args(argv)
     try:
         if args.command == "run":
@@ -139,8 +160,9 @@ def main(argv: list[str] | None = None) -> int:
                 build_codecs(args.codecs),
                 data_factor=args.data_factor,
                 test_every=args.test_every,
+                output_namespace=args.output_namespace,
             )
-        else:
+        elif args.command == "prune":
             from splatpipe.bench.codecs import build_codecs
             from splatpipe.bench.prune import run_prune_bench
             from splatpipe.compress.prune import parse_retained_percentages
@@ -153,6 +175,18 @@ def main(argv: list[str] | None = None) -> int:
                 data_factor=args.data_factor,
                 test_every=args.test_every,
             )
+        else:
+            from splatpipe.bench.pack import run_pack_bench
+
+            result = run_pack_bench(
+                args.run_dir,
+                orders=tuple(o.strip() for o in args.orders.split(",") if o.strip()),
+                candidates=tuple(
+                    c.strip() for c in args.candidates.split(",") if c.strip()
+                ),
+            )
+            print(json.dumps(result["best_codecs"], indent=2))
+            print(f"container {result['selected_bytes']:,} bytes")
     except SplatpipeError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
