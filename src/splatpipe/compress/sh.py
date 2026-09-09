@@ -20,7 +20,15 @@ def validate_codebook_bits(bits: int) -> None:
 def quantize_codebook(
     centroids: np.ndarray, bits: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Quantize each codebook component over its own observed range."""
+    """Quantize each codebook component over its own observed range.
+
+    This duplicates compress.quantize.quantize_affine's rule and is deliberately
+    not collapsed into it. That one promotes to float64 and this one stays in
+    float32, so a component landing within ~5e-6 of a rounding tie can go either
+    way; test_codebook_quantiser_agrees_with_the_container_to_within_one_level
+    pins the difference at one level. Milestone 3's measured bytes come from this
+    path, so sharing the implementation would silently move a published number.
+    """
     validate_codebook_bits(bits)
     if centroids.dtype != np.float32 or centroids.ndim != 2:
         raise ArtifactError(
