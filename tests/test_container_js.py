@@ -34,7 +34,7 @@ def _decode_with_node(path: Path, tmp_path: Path) -> dict:
     return json.loads(output.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("codec", ("raw", "deflate"))
+@pytest.mark.parametrize("codec", ("raw", "deflate", "png"))
 def test_node_recovers_every_block_exactly(tmp_path, codec):
     scene = pack_scene(a_cloud(300), order="morton")
     path = tmp_path / "scene.splatc"
