@@ -183,6 +183,34 @@ class PrunedCodec:
         return self.codec.size(directory)
 
 
+class ContainerCodec:
+    """The project's own single-file container."""
+
+    def __init__(
+        self,
+        order: str = "morton",
+        codecs: dict[str, str] | None = None,
+        name: str = "container",
+    ) -> None:
+        self.order = order
+        self.codecs = codecs
+        self.name = name
+
+    def encode(self, cloud: GaussianCloud, directory: Path) -> None:
+        from splatpipe.formats.container import pack_scene, write_container
+
+        scene = pack_scene(cloud, order=self.order)
+        write_container(scene, Path(directory) / "scene.splatc", codecs=self.codecs)
+
+    def decode(self, directory: Path) -> GaussianCloud:
+        from splatpipe.formats.container import read_container, unpack_scene
+
+        return unpack_scene(read_container(Path(directory) / "scene.splatc"))
+
+    def size(self, directory: Path) -> int:
+        return directory_size(directory)
+
+
 CODECS = {
     "ply": PlyCodec,
     "splat": SplatCodec,
@@ -190,6 +218,7 @@ CODECS = {
     "shvq256": lambda: ShVqCodec(256),
     "shvq1024": lambda: ShVqCodec(1024),
     "shvq4096": lambda: ShVqCodec(4096),
+    "container": ContainerCodec,
 }
 
 
