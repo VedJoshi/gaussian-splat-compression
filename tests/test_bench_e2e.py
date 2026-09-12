@@ -39,18 +39,20 @@ def test_bench_measures_every_codec_on_a_trained_scene(tmp_path):
                 "--scene",
                 str(scene),
                 "--codecs",
-                "ply,splat",
+                "ply,splat,container",
             ]
         )
         == 0
     )
 
     curve = Curve.read_json(paths.curve_json)
-    assert [point.codec for point in curve.points] == ["ply", "splat"]
+    assert [point.codec for point in curve.points] == ["ply", "splat", "container"]
     assert curve.held_out_views == 3
     assert paths.curve_png.is_file()
 
-    ply, splat = curve.points
+    ply, splat, container = curve.points
+    assert container.gaussians == ply.gaussians
+    assert container.bytes < ply.bytes
     assert ply.ratio == pytest.approx(1.0)
     # The .splat discards f_rest, so it is smaller than the ply and worse than it.
     assert splat.bytes < ply.bytes
