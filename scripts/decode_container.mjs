@@ -73,16 +73,7 @@ async function decodePng(bytes) {
   }
   if (!width || !height) throw new Error('png block has no IHDR');
 
-  let total = 0;
-  for (const part of idat) total += part.length;
-  const joined = new Uint8Array(total);
-  let cursor = 0;
-  for (const part of idat) {
-    joined.set(part, cursor);
-    cursor += part.length;
-  }
-
-  const filtered = await inflate(joined);
+  const filtered = await inflate(new Blob(idat));
   if (filtered.length < height * (width + 1)) throw new Error('png block decoded short');
 
   const pixels = new Uint8Array(width * height);

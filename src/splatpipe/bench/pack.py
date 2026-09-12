@@ -39,20 +39,16 @@ def best_codecs(measurements: dict) -> dict:
     }
 
 
-def _container_bytes(scene, codecs: dict, tmp: Path) -> int:
-    write_container(
-        scene, tmp, codecs={k: v for k, v in codecs.items() if k in scene.fields}
-    )
-    return tmp.stat().st_size
-
-
 def measure_orders(cloud, orders, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
     measured = {}
     with tempfile.TemporaryDirectory(dir=tmp_dir) as scratch:
         target = Path(scratch) / "probe.splatc"
         for order in orders:
             scene = pack_scene(cloud, sh_vq=sh_vq, order=order)
-            size = _container_bytes(scene, codecs, target)
+            write_container(
+                scene, target, codecs={k: v for k, v in codecs.items() if k in scene.fields}
+            )
+            size = target.stat().st_size
             measured[order] = {
                 "bytes": size,
                 "count": scene.count,
@@ -63,7 +59,7 @@ def measure_orders(cloud, orders, codecs, sh_vq=None, tmp_dir: Path | None = Non
     return measured
 
 
-def measure_layouts(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
+def measure_layouts(cloud, codecs, sh_vq=None) -> dict:
     """Compare compressed payloads, including shared fields in both layouts."""
     scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
     sizes = {
@@ -90,7 +86,7 @@ def measure_layouts(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> d
     }
 
 
-def measure_means_split(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
+def measure_means_split(cloud, codecs, sh_vq=None) -> dict:
     """uint16 means interleaved, against separate high and low byte planes."""
     scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
     values = np.ascontiguousarray(scene.fields["means"].values)

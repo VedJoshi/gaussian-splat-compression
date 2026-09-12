@@ -186,17 +186,17 @@ class PrunedCodec:
 class ContainerCodec:
     """The project's own single-file container."""
 
+    name = "container"
+
     def __init__(
         self,
         order: str = "morton",
         codecs: dict[str, str] | None = None,
         sh_codebook: Path | str | None = None,
-        name: str = "container",
     ) -> None:
         self.order = order
         self.codecs = codecs
         self.sh_codebook = sh_codebook
-        self.name = name
 
     def encode(self, cloud: GaussianCloud, directory: Path) -> None:
         from splatpipe.formats.container import pack_scene, write_container
