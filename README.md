@@ -112,9 +112,9 @@ All three points below come from one run over the same 1,000,000-Gaussian PLY an
 | SH VQ, 4,096 entries | 14,526,917 | 16.25x | 24.256 | 0.8539 | 0.1425 | 119.8 s | 1.2 s |
 | `.splatc` container | 16,594,830 | 14.22x | 24.246 | 0.8538 | 0.1427 | 30.8 s | 0.7 s |
 
-**The container does not beat the baseline on size.** It is 14.22x smaller than PLY, but 14.24% larger than the `shvq4096` directory it replaces, for a PSNR difference of 0.010 dB. Quality matching to that margin is the intended result: both paths dequantize the identical codebook, so the container reproduces the baseline's SH rather than approximating it. Encode is 3.9x faster because the codebook is reused instead of refitted, and decode is 1.8x faster.
+**The container does not beat the baseline on size.** It is 14.22x smaller than PLY, but 14.24% larger than the `shvq4096` directory it replaces, for a PSNR difference of 0.010 dB. Both paths reuse the same stored codebook, but reassignment against quantized centroids can change labels, so exact reconstructed SH equality is not guaranteed. Encode is 3.9x faster because the codebook is reused instead of refitted, and decode is 1.8x faster.
 
-The 16,594,830-byte figure is the benchmark's container, which applies `deflate` uniformly. Selecting the measured best codec per block gives 16,427,638 bytes, and `plas` ordering with per-block selection gives 15,368,018 bytes, 5.79% above the baseline. Block codecs are lossless, so all three decode to identical values and the quality row is unchanged.
+The 16,594,830-byte figure is the benchmark's container, which applies `deflate` uniformly. Selecting the measured best codec per block gives 16,427,638 bytes, and `plas` ordering with per-block selection gives 15,368,018 bytes, 5.79% above the baseline. Changing block codecs at fixed ordering is lossless. The quality row measures Morton ordering; the PLAS result is a size-only observation.
 
 ### Where the bytes go
 
@@ -129,19 +129,42 @@ Block sizes under the selected codec, against the corresponding file in the base
 | sh0 | 2,506,679 | png | 2,056,608 | +21.88% |
 | SH codebook + labels | 1,763,189 | png, deflate | 1,749,469 | +0.78% |
 
-The SH blocks match, confirming the codebook was reused rather than refitted. The gap is in the five per-Gaussian attribute blocks, and its cause is measured rather than inferred: the baseline writes each attribute as a PNG over the PLAS-sorted 1,000x1,000 grid, so a pixel and the pixel above it are spatial neighbours and PNG's row filters have something to predict from. The container's `png` block codec instead lays bytes into a square-ish grid sized from the byte count alone, so rows cut across Gaussian boundaries and vertical coherence is destroyed. That is why `deflate` beats `png` on four of five attribute blocks here, and why the baseline's PNGs beat both.
+Most of the gap is in the five per-Gaussian attribute blocks. A likely contributor is PNG layout: the baseline writes attributes over a PLAS-sorted 1,000x1,000 grid, whereas the container lays bytes into a grid sized from byte count alone. Rows can cut across Gaussian boundaries. Ordering and layout both differ here; a controlled grid experiment is needed to quantify their individual effects. Similar SH block sizes are consistent with codebook reuse, but do not establish identical labels.
 
 ### Resolved design questions
 
-- **Struct-of-arrays beats array-of-structs**, 16,427,638 against 17,954,482 bytes, 8.50% smaller. Per-attribute blocks also keep each field independently addressable, which the viewer needs.
-- **Ordering matters and PLAS wins**: 16,640,542 bytes unsorted, 16,427,638 Morton, 15,392,546 PLAS. Morton remains the container's default because PLAS crops to a square grid, which is what makes the baseline decode 799,236 of 800,000 pruned Gaussians. The container stores the exact count it is given.
-- **Ordering does not change which codec wins a block.** Selecting per-block codecs against a PLAS-packed scene rather than a Morton-packed one produces the identical assignment, so the staged measurement's codec-then-ordering sequence is sound.
+- **Struct-of-arrays uses 9.03% fewer compressed payload bytes:** 16,423,606 versus 18,054,209, with the shared SH codebook included and headers excluded on both sides. This corrects the initial comparison, which counted headers and the codebook inconsistently. Per-attribute blocks also keep each field independently addressable.
+- **PLAS wins on the unpruned cloud**: 16,640,542 bytes unsorted, 16,427,638 Morton, 15,392,546 PLAS. Morton remains the container's default because PLAS crops to a square grid, which is what makes the baseline decode 799,236 of 800,000 pruned Gaussians. Morton stores the exact count it is given.
+- **The unpruned experiment selected the same block codecs under both orderings.** Selecting per-block codecs against a PLAS-packed scene rather than a Morton-packed one produced the same assignment. This observation is specific to that experiment.
 - **Splitting 16-bit means into high and low byte planes** stores 4,779,319 bytes against 5,423,375 interleaved, 11.88% smaller. It is measured but not adopted; adopting it is a format change and belongs with the PNG grid fix.
 - **Means must be quantized in log space.** Truck's means span [-5720, 8781] because of a handful of stray Gaussians while 99.9% of the scene lies within +/-24. Quantizing that raw range at 16 bits gave 0.043 units of position RMS, several splat widths, and rendered at 13.580 dB against PLY's 24.400. Applying `sign(x) * log1p(|x|)` first, which is what `PngCompression` already does, cut the RMS to 0.00059 and recovered the 24.246 dB above.
 
 ### Limitations
 
-The container is not yet competitive on size, and the identified cause is the PNG block codec's grid shape rather than anything structural in the format. The measurement was run on the unpruned 1,000,000-Gaussian cloud, so the 11,920,255-byte pruned composition from Milestone 4 is not directly comparable; combining pruning with the container is untested. Seeded CUDA K-means remains reproducible but not bit-deterministic, and `shvq4096` measured 14,526,917 bytes here against 14,526,288 in Milestone 3.
+The container is not yet smaller than the PNG-family baseline. PNG grid layout remains an optimization candidate, with its independent effect unmeasured. Seeded CUDA K-means is not bit-deterministic, and unpruned `shvq4096` measured 14,526,917 bytes here against 14,526,288 in the Milestone 4 run.
+
+### Composition with 80% contribution pruning
+
+The follow-up uses the saved Milestone 4 ranking and the selected pruned point's own 4,096-entry codebook. The retained percentage, bit depths, candidate codecs, and 32 held-out views are unchanged. The baseline row is the preserved Milestone 4 measurement; the container row was measured on September 12, 2026.
+
+| Codec | Decoded Gaussians | Bytes | Ratio vs raw PLY | PSNR | SSIM | LPIPS |
+|---|---:|---:|---:|---:|---:|---:|
+| 80% pruning + SH VQ | 799,236 | 11,920,255 | 19.80x | 24.2632 | 0.85373 | 0.14315 |
+| 80% pruning + `.splatc` | 800,000 | 12,278,198 | 19.22x | 24.2575 | 0.85362 | 0.14327 |
+
+The container preserves all 800,000 survivors and is **3.00% larger** than the baseline, with changes of -0.0057 dB PSNR, -0.00011 SSIM, and +0.00012 LPIPS. Encoding took 23.93 seconds with the codebook reused; decoding took 0.48 seconds. These timings do not include the earlier codebook fitting.
+
+PNG wins for DC color and the SH codebook; DEFLATE wins for means, scales, quaternions, opacities, and labels. On this pruned cloud, Morton wins the ordering sweep:
+
+| Ordering | Stored Gaussians | Container bytes | Bytes per Gaussian |
+|---|---:|---:|---:|
+| None | 800,000 | 13,544,418 | 16.931 |
+| Morton | 800,000 | 12,278,198 | 15.348 |
+| PLAS | 799,236 | 12,583,100 | 15.744 |
+
+With consistent payload accounting, struct-of-arrays uses 12,274,156 bytes against 13,921,208 for array-of-structs, an 11.83% saving. Splitting the means into byte planes would reduce that block from 3,785,100 to 3,066,739 bytes (18.98%); it remains an unadopted experiment.
+
+Artifacts are under `out/truck/container-prune80/`. The measured container matches the separately packed file block-for-block, and the JavaScript decoder matches Python on all seven blocks. SHA-256 checks confirmed that all 76 existing M2/M3, M4, and unpruned M5 artifact files remained unchanged.
 
 ## Setup (Windows)
 
@@ -216,12 +239,12 @@ Fast tier (CPU, no MSVC):
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-Full tier (GPU, trains twice):
+Full tier (GPU training, rendering, and Chromium):
 ```bat
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected counts after Milestone 4: 191 fast tests with 13 GPU tests deselected; 204 tests in the complete tier.
+Expected counts after Milestone 5: 278 fast tests with 15 slow tests deselected; 293 tests in the complete tier. Node parity tests require Node, and the browser tests require Playwright and Chromium.
 
 ## Repository layout
 
@@ -243,7 +266,7 @@ Expected counts after Milestone 4: 191 fast tests with 13 GPU tests deselected; 
 | 2. Benchmarking harness | Done |
 | 3. SH quantization | Done |
 | 4. Contribution pruning | Done |
-| 5. Container format | Planned |
+| 5. Container format | Done |
 | 6. Viewer integration | Planned |
 | 7. Multi-scene evaluation | Planned |
 | 8. Evaluation writeup | Planned |
