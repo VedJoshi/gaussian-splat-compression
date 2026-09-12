@@ -64,11 +64,12 @@ def measure_orders(cloud, orders, codecs, sh_vq=None, tmp_dir: Path | None = Non
 
 
 def measure_layouts(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> dict:
-    """Per-attribute blocks against one interleaved block of the same values."""
+    """Compare compressed payloads, including shared fields in both layouts."""
     scene = pack_scene(cloud, sh_vq=sh_vq, order="morton")
-    with tempfile.TemporaryDirectory(dir=tmp_dir) as scratch:
-        target = Path(scratch) / "probe.splatc"
-        struct_of_arrays = _container_bytes(scene, codecs, target)
+    sizes = {
+        name: len(encode_block(field.values.tobytes(), codecs.get(name, DEFAULT_CODEC)))
+        for name, field in scene.fields.items()
+    }
 
     interleaved = np.concatenate(
         [
@@ -76,15 +77,16 @@ def measure_layouts(cloud, codecs, sh_vq=None, tmp_dir: Path | None = None) -> d
             .reshape(scene.count, -1)
             .view(np.uint8)
             .reshape(scene.count, -1)
-            for field in scene.fields.values()
-            if len(field.values) == scene.count
+            for name, field in scene.fields.items()
+            if name != "sh_codebook"
         ],
         axis=1,
     )
     codec = codecs.get("means", DEFAULT_CODEC)
     return {
-        "struct_of_arrays": struct_of_arrays,
-        "array_of_structs": len(encode_block(interleaved.tobytes(), codec)),
+        "struct_of_arrays": sum(sizes.values()),
+        "array_of_structs": len(encode_block(interleaved.tobytes(), codec))
+        + sizes.get("sh_codebook", 0),
     }
 
 

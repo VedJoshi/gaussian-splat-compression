@@ -56,6 +56,26 @@ def test_layout_measurement_compares_both_arrangements():
     assert all(value > 0 for value in measured.values())
 
 
+@pytest.mark.parametrize("clusters", [16, 300])
+def test_layouts_count_the_same_bytes_with_a_shared_codebook(clusters):
+    from splatpipe.formats.container import ShVq, pack_scene
+
+    cloud = a_cloud(300)
+    sh_vq = ShVq(
+        codebook=np.zeros((clusters, 45), dtype=np.uint8),
+        labels=np.zeros(300, dtype=np.uint16),
+        mins=np.zeros(45, dtype=np.float32),
+        maxs=np.ones(45, dtype=np.float32),
+        bits=6,
+    )
+    scene = pack_scene(cloud, sh_vq=sh_vq)
+    expected = sum(field.values.nbytes for field in scene.fields.values())
+    measured = pack_bench.measure_layouts(
+        cloud, {name: "raw" for name in scene.fields}, sh_vq=sh_vq
+    )
+    assert measured == {"struct_of_arrays": expected, "array_of_structs": expected}
+
+
 def test_means_split_measurement_compares_both_arrangements():
     measured = pack_bench.measure_means_split(a_cloud(300), {})
     assert set(measured) == {"interleaved", "split_hi_lo"}
