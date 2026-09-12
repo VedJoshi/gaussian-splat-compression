@@ -2,8 +2,6 @@
 // viewer lands in milestone 6. Kept dependency-free so it runs identically
 // under node and in a browser module.
 
-import { readFile, writeFile } from 'node:fs/promises';
-
 const MAGIC = 'SPLATC';
 const VERSION_MAJOR = 1;
 const PREFIX_LEN = 24;
@@ -174,19 +172,25 @@ export async function decodeContainer(buffer) {
   };
 }
 
-const [input, output] = process.argv.slice(2);
-if (!input || !output) {
-  console.error('usage: node decode_container.mjs <in.splatc> <out.json>');
-  process.exit(2);
-}
+if (typeof process !== 'undefined' && process.versions?.node) {
+  const { pathToFileURL } = await import('node:url');
+  if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const [input, output] = process.argv.slice(2);
+    if (!input || !output) {
+      console.error('usage: node decode_container.mjs <in.splatc> <out.json>');
+      process.exit(2);
+    }
 
-try {
-  const file = await readFile(input);
-  const decoded = await decodeContainer(
-    file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength),
-  );
-  await writeFile(output, JSON.stringify(decoded), 'utf-8');
-} catch (error) {
-  console.error(String(error && error.message ? error.message : error));
-  process.exit(1);
+    try {
+      const { readFile, writeFile } = await import('node:fs/promises');
+      const file = await readFile(input);
+      const decoded = await decodeContainer(
+        file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength),
+      );
+      await writeFile(output, JSON.stringify(decoded), 'utf-8');
+    } catch (error) {
+      console.error(String(error && error.message ? error.message : error));
+      process.exit(1);
+    }
+  }
 }

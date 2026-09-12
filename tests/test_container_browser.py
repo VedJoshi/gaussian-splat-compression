@@ -9,11 +9,13 @@ block codec, and it is far cheaper to learn that now than in milestone 6."""
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from splatpipe.formats.container import encode_block
+from splatpipe.formats.container import encode_block, pack_scene, write_container
+from tests.test_codecs import a_cloud
 
 pytestmark = pytest.mark.gpu
 
@@ -56,3 +58,29 @@ def test_a_png_block_survives_a_canvas_round_trip():
         "chromium did not return the stored bytes. Colour management or alpha "
         "premultiplication rewrote them, so png must not be used as a block codec."
     )
+
+
+def test_browser_imports_the_decoder_and_recovers_a_mixed_codec_container(tmp_path):
+    playwright = pytest.importorskip("playwright.sync_api")
+    scene = pack_scene(a_cloud(300))
+    path = tmp_path / "scene.splatc"
+    write_container(scene, path, codecs={"means": "raw", "sh0": "png"})
+    decoder = Path(__file__).resolve().parents[1] / "scripts/decode_container.mjs"
+    module_url = "data:text/javascript;base64," + base64.b64encode(decoder.read_bytes()).decode()
+    payload = "data:application/octet-stream;base64," + base64.b64encode(path.read_bytes()).decode()
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=CHROMIUM, headless=True)
+        try:
+            decoded = browser.new_page().evaluate(
+                """async ([moduleUrl, payload]) => {
+                    const { decodeContainer } = await import(moduleUrl);
+                    return decodeContainer(await (await fetch(payload)).arrayBuffer());
+                }""",
+                [module_url, payload],
+            )
+        finally:
+            browser.close()
+    assert decoded["count"] == scene.count
+    assert decoded["sh_degree"] == scene.sh_degree
+    for name, field in scene.fields.items():
+        np.testing.assert_array_equal(decoded["blocks"][name]["values"], field.values.ravel())
