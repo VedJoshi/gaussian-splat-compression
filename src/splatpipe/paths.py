@@ -80,6 +80,22 @@ class RunPaths:
     def prune_meta(self) -> Path:
         return self.pruning_dir / "meta.json"
 
+    @property
+    def container_dir(self) -> Path:
+        return self.root / "container"
+
+    @property
+    def container(self) -> Path:
+        return self.container_dir / "scene.splatc"
+
+    @property
+    def container_curve_json(self) -> Path:
+        return self.container_dir / "curve.json"
+
+    @property
+    def container_meta(self) -> Path:
+        return self.container_dir / "meta.json"
+
     def trained_ply(self, max_steps: int) -> Path:
         """Where gsplat writes the final ply. It names files by step index, so
         a 7000-step run produces point_cloud_6999.ply."""

@@ -166,3 +166,36 @@ def test_png_codec_reports_the_count_it_actually_encoded(tmp_path):
     codec = PngCodec()
     codec.encode(a_cloud(65537), tmp_path)
     assert len(codec.decode(tmp_path)) == 65536
+
+
+def test_container_codec_round_trips_on_cpu(tmp_path):
+    from splatpipe.bench.codecs import ContainerCodec
+
+    cloud = a_cloud(256)
+    codec = ContainerCodec(order="none")
+    codec.encode(cloud, tmp_path)
+    back = codec.decode(tmp_path)
+
+    assert codec.name == "container"
+    assert len(back) == 256
+    assert back.sh_degree == 3
+    assert codec.size(tmp_path) == (tmp_path / "scene.splatc").stat().st_size
+    assert codec.size(tmp_path) < 256 * 236
+
+
+def test_container_codec_is_reachable_by_name():
+    from splatpipe.bench.codecs import build_codecs
+
+    codecs = build_codecs("ply,container")
+    assert [codec.name for codec in codecs] == ["ply", "container"]
+
+
+def test_container_codec_composes_under_pruning(tmp_path):
+    from splatpipe.bench.codecs import ContainerCodec
+
+    cloud = a_cloud(100)
+    scores = np.arange(100, dtype=np.float64)
+    codec = PrunedCodec(ContainerCodec(order="none"), scores, 50, score_name="prune")
+    assert codec.name == "prune50-container"
+    codec.encode(cloud, tmp_path)
+    assert len(codec.decode(tmp_path)) == 50

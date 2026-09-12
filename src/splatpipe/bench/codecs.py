@@ -183,6 +183,42 @@ class PrunedCodec:
         return self.codec.size(directory)
 
 
+class ContainerCodec:
+    """The project's own single-file container."""
+
+    name = "container"
+
+    def __init__(
+        self,
+        order: str = "morton",
+        codecs: dict[str, str] | None = None,
+        sh_codebook: Path | str | None = None,
+    ) -> None:
+        self.order = order
+        self.codecs = codecs
+        self.sh_codebook = sh_codebook
+
+    def encode(self, cloud: GaussianCloud, directory: Path) -> None:
+        from splatpipe.formats.container import pack_scene, write_container
+
+        sh_vq = None
+        if self.sh_codebook is not None:
+            from splatpipe.compress.sh import sh_vq_from_baseline
+
+            # Assigned after any pruning upstream, so labels match this cloud.
+            sh_vq = sh_vq_from_baseline(self.sh_codebook, cloud.shN)
+        scene = pack_scene(cloud, sh_vq=sh_vq, order=self.order)
+        write_container(scene, Path(directory) / "scene.splatc", codecs=self.codecs)
+
+    def decode(self, directory: Path) -> GaussianCloud:
+        from splatpipe.formats.container import read_container, unpack_scene
+
+        return unpack_scene(read_container(Path(directory) / "scene.splatc"))
+
+    def size(self, directory: Path) -> int:
+        return directory_size(directory)
+
+
 CODECS = {
     "ply": PlyCodec,
     "splat": SplatCodec,
@@ -190,10 +226,11 @@ CODECS = {
     "shvq256": lambda: ShVqCodec(256),
     "shvq1024": lambda: ShVqCodec(1024),
     "shvq4096": lambda: ShVqCodec(4096),
+    "container": ContainerCodec,
 }
 
 
-def build_codecs(names: str) -> list[Codec]:
+def build_codecs(names: str, sh_codebook: Path | str | None = None) -> list[Codec]:
     """Build codecs in measurement order; the first is the ratio anchor."""
     selected = [name.strip() for name in names.split(",") if name.strip()]
     if not selected:
@@ -204,4 +241,9 @@ def build_codecs(names: str) -> list[Codec]:
             f"unknown codec(s) {', '.join(unknown)}. "
             f"Known codecs are: {', '.join(sorted(CODECS))}"
         )
-    return [CODECS[name]() for name in selected]
+    return [
+        ContainerCodec(sh_codebook=sh_codebook)
+        if name == "container" and sh_codebook is not None
+        else CODECS[name]()
+        for name in selected
+    ]

@@ -13,11 +13,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# pillow backs tests/fixtures/tiny_scene.py, which the fast tier needs.
 dev = ["pytest>=8.0", "pillow"]
 # cupy 14 and above requires numpy>=2.0, which conflicts with the numpy<2.0.0
 # pin above. torchpq imports cupy at runtime without declaring it. plas has no
-# PyPI release.
-bench = ["cupy-cuda12x==13.6.0", "torchpq", "torchmetrics>=1.9", "matplotlib"]
+# PyPI release. pillow is repeated here because the container's png block codec
+# needs it without the dev extra.
+bench = [
+    "cupy-cuda12x==13.6.0",
+    "torchpq",
+    "torchmetrics>=1.9",
+    "matplotlib",
+    "pillow",
+]
 
 [project.scripts]
 splatpipe = "splatpipe.cli:main"
