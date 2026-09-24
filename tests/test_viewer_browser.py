@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from scripts.viewer_harness import REPO, capture, serve, viewer_url, wait_for_frame, watch_errors
-from splatpipe.formats.container import write_container
+from splatpipe.formats.container import PackedScene, write_container
 from tests.test_viewer_js import a_vq_scene
 
 pytestmark = pytest.mark.gpu
@@ -69,3 +69,29 @@ def test_a_missing_scene_is_reported_not_hung(browser, site):
     message = page.inner_text("#message")
     page.close()
     assert "404" in message
+
+
+def test_sh_changes_the_image_and_sh_off_matches_dc(browser, site):
+    _, base = site
+    with_sh, errors_sh = _open(browser, base, "/scene.splatc")
+    image_sh = capture(with_sh)
+    with_sh.close()
+    without, errors_dc = _open(browser, base, "/scene.splatc", sh=False)
+    image_dc = capture(without)
+    without.close()
+
+    assert errors_sh == [] and errors_dc == []
+    assert np.abs(image_sh.astype(int) - image_dc.astype(int)).mean() > 1.0
+
+
+def test_a_container_without_sh_renders_dc_only_without_webgl_errors(browser, site):
+    root, base = site
+    scene = a_vq_scene()
+    fields = {k: v for k, v in scene.fields.items() if k not in ("sh_codebook", "sh_labels")}
+    write_container(PackedScene(count=scene.count, sh_degree=0, order=scene.order, fields=fields), root / "dc.splatc")
+
+    page, errors = _open(browser, base, "/dc.splatc")
+    image = capture(page)
+    page.close()
+    assert errors == []
+    assert image.max() > 0

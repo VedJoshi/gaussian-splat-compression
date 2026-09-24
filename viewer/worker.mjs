@@ -165,6 +165,7 @@ async function load(url) {
     {
       ...gaussians,
       codebook,
+      hasCodebook: scene.codebook !== null,
       count: scene.count,
       phases: { fetch: t1 - t0, decode: t2 - t1, reconstruct: t3 - t2, pack: t4 - t3 },
     },

@@ -166,12 +166,52 @@ uniform highp usampler2D u_texture;
 uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
+uniform highp sampler2D u_codebook;
+uniform bool u_sh;
+uniform vec3 campos;
 
 in vec2 position;
 in int index;
 
 out vec4 vColor;
 out vec2 vPosition;
+
+#define C(k) vec3(s[3 * (k)], s[3 * (k) + 1], s[3 * (k) + 2])
+
+// Degree 1-3 terms in gsplat's order and constants (gsplat/cuda/_torch_impl.py).
+// Codebook row coefficient k is gsplat's coefficient k + 1.
+vec3 shRest(vec3 dir, uint label) {
+    float s[48];
+    for (int t = 0; t < 12; t++) {
+        vec4 v = texelFetch(u_codebook, ivec2(t, int(label)), 0);
+        s[4 * t] = v.x; s[4 * t + 1] = v.y; s[4 * t + 2] = v.z; s[4 * t + 3] = v.w;
+    }
+    float x = dir.x, y = dir.y, z = dir.z;
+    vec3 r = 0.48860251190292 * (-y * C(0) + z * C(1) - x * C(2));
+
+    float z2 = z * z;
+    float fTmpB = -1.092548430592079 * z;
+    float fC1 = x * x - y * y;
+    float fS1 = 2.0 * x * y;
+    r += 0.5462742152960395 * fS1 * C(3)
+       + fTmpB * y * C(4)
+       + (0.9461746957575601 * z2 - 0.3153915652525201) * C(5)
+       + fTmpB * x * C(6)
+       + 0.5462742152960395 * fC1 * C(7);
+
+    float fTmpC = -2.285228997322329 * z2 + 0.4570457994644658;
+    float fTmpB3 = 1.445305721320277 * z;
+    float fC2 = x * fC1 - y * fS1;
+    float fS2 = x * fS1 + y * fC1;
+    r += -0.5900435899266435 * fS2 * C(8)
+       + fTmpB3 * fS1 * C(9)
+       + fTmpC * y * C(10)
+       + z * (1.865881662950577 * z2 - 1.119528997770346) * C(11)
+       + fTmpC * x * C(12)
+       + fTmpB3 * fC1 * C(13)
+       - 0.5900435899266435 * fC2 * C(14);
+    return r;
+}
 
 void main () {
     ivec2 base = ivec2((uint(index) & 0x3ffu) * 3u, uint(index) >> 10);
@@ -213,7 +253,10 @@ void main () {
     vec2 majorAxis = min(sqrt(lambda1), 1024.0) * diagonalVector;
     vec2 minorAxis = min(sqrt(lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-    vColor = vec4(max(appearance.rgb, 0.0), appearance.a);
+    vec3 rgb = appearance.rgb;
+    // gsplat takes view directions from the camera centre to each mean.
+    if (u_sh) rgb += shRest(normalize(world - campos), cen.w);
+    vColor = vec4(max(rgb, 0.0), appearance.a);
     vPosition = position;
 
     vec2 vCenter = vec2(pos2d) / pos2d.w;
@@ -277,22 +320,21 @@ async function main() {
     gl.shaderSource(vertexShader, vertexShaderSource);
     gl.compileShader(vertexShader);
     if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS))
-        console.error(gl.getShaderInfoLog(vertexShader));
+        throw new Error(`vertex shader failed to compile: ${gl.getShaderInfoLog(vertexShader)}`);
 
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fragmentShader, fragmentShaderSource);
     gl.compileShader(fragmentShader);
     if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS))
-        console.error(gl.getShaderInfoLog(fragmentShader));
+        throw new Error(`fragment shader failed to compile: ${gl.getShaderInfoLog(fragmentShader)}`);
 
     const program = gl.createProgram();
     gl.attachShader(program, vertexShader);
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
-    gl.useProgram(program);
-
     if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-        console.error(gl.getProgramInfoLog(program));
+        throw new Error(`shader program failed to link: ${gl.getProgramInfoLog(program)}`);
+    gl.useProgram(program);
 
     const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
     viewerStats.renderer = debugInfo
@@ -315,6 +357,12 @@ async function main() {
     const u_viewport = gl.getUniformLocation(program, "viewport");
     const u_focal = gl.getUniformLocation(program, "focal");
     const u_view = gl.getUniformLocation(program, "view");
+    const u_campos = gl.getUniformLocation(program, "campos");
+    const u_sh = gl.getUniformLocation(program, "u_sh");
+    const shRequested = params.get("sh") !== "0";
+    const codebookTexture = gl.createTexture();
+    gl.uniform1i(gl.getUniformLocation(program, "u_codebook"), 1);
+    gl.uniform1i(u_sh, 0);
 
     // sqrt(2 ln 255): beyond this many standard deviations alpha is below 1/255.
     const extent = 3.33;
@@ -367,6 +415,14 @@ async function main() {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, texwidth, texheight, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, texdata);
+            const { codebook, hasCodebook } = e.data;
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, codebookTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, codebook.width, codebook.height, 0, gl.RGBA, gl.FLOAT, codebook.data);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.uniform1i(u_sh, shRequested && hasCodebook ? 1 : 0);
             viewerStats.phases = { ...e.data.phases, upload: performance.now() - uploadStart };
         } else if (e.data.depthIndex) {
             gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
@@ -782,6 +838,8 @@ async function main() {
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
+            const camToWorld = invert4(actualViewMatrix);
+            gl.uniform3fv(u_campos, new Float32Array([camToWorld[12], camToWorld[13], camToWorld[14]]));
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
