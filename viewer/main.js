@@ -41,9 +41,12 @@ function encodeBase64(bytes) {
 // The frame loop re-inverts the view matrix every frame, so a static view drifts in the last bits.
 const nearView = (a, b) => !!a && a.every((v, i) => Math.abs(v - b[i]) <= 1e-6 * (1 + Math.abs(v)));
 
+// gsplat culls means nearer than this; the vertex shader applies it explicitly
+// because the clip test alone would only cull below about ZNEAR / 2.2.
+const ZNEAR = 0.01;
+
 function getProjectionMatrix(fx, fy, width, height, cx = width / 2, cy = height / 2) {
-    // Same near plane as gsplat, so both renderers cull the same Gaussians.
-    const znear = 0.01;
+    const znear = ZNEAR;
     const zfar = 200;
     return [
         [(2 * fx) / width, 0, 0, 0],
@@ -178,7 +181,7 @@ void main () {
     vec4 pos2d = projection * cam;
 
     float clip = 1.2 * pos2d.w;
-    if (pos2d.z < -clip || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
+    if (cam.z < ${ZNEAR} || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
         gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         return;
     }
