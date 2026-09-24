@@ -227,7 +227,7 @@ Outputs: `out/truck/container/{curve.json, curve.png}`.
 
 Read a container from JavaScript:
 ```bat
-node scripts\decode_container.mjs out\truck\container\scene.splatc out\truck\container\decoded.json
+node viewer\decode_container.mjs out\truck\container\scene.splatc out\truck\container\decoded.json
 ```
 
 Add `--skip-train` to re-export without retraining.

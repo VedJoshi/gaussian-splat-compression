@@ -65,7 +65,7 @@ def test_browser_imports_the_decoder_and_recovers_a_mixed_codec_container(tmp_pa
     scene = pack_scene(a_cloud(300))
     path = tmp_path / "scene.splatc"
     write_container(scene, path, codecs={"means": "raw", "sh0": "png"})
-    decoder = Path(__file__).resolve().parents[1] / "scripts/decode_container.mjs"
+    decoder = Path(__file__).resolve().parents[1] / "viewer/decode_container.mjs"
     module_url = "data:text/javascript;base64," + base64.b64encode(decoder.read_bytes()).decode()
     payload = "data:application/octet-stream;base64," + base64.b64encode(path.read_bytes()).decode()
     with playwright.sync_playwright() as p:
@@ -74,7 +74,9 @@ def test_browser_imports_the_decoder_and_recovers_a_mixed_codec_container(tmp_pa
             decoded = browser.new_page().evaluate(
                 """async ([moduleUrl, payload]) => {
                     const { decodeContainer } = await import(moduleUrl);
-                    return decodeContainer(await (await fetch(payload)).arrayBuffer());
+                    const decoded = await decodeContainer(await (await fetch(payload)).arrayBuffer());
+                    for (const block of Object.values(decoded.blocks)) block.values = Array.from(block.values);
+                    return decoded;
                 }""",
                 [module_url, payload],
             )
