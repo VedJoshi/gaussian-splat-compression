@@ -19,10 +19,6 @@ from tests.test_codecs import a_cloud
 
 pytestmark = pytest.mark.gpu
 
-CHROMIUM = (
-    "C:/Users/vedti/AppData/Local/ms-playwright/chromium-1208/chrome-win64/chrome.exe"
-)
-
 READ_BACK = """
 async (dataUrl) => {
   const blob = await (await fetch(dataUrl)).blob();
@@ -39,20 +35,16 @@ async (dataUrl) => {
 """
 
 
-def test_a_png_block_survives_a_canvas_round_trip():
-    playwright = pytest.importorskip("playwright.sync_api")
-
+def test_a_png_block_survives_a_canvas_round_trip(browser):
     payload = np.arange(256, dtype=np.uint8).repeat(4).tobytes()
     encoded = encode_block(payload, "png")
     data_url = "data:image/png;base64," + base64.b64encode(encoded).decode("ascii")
 
-    with playwright.sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM, headless=True)
-        try:
-            page = browser.new_page()
-            recovered = page.evaluate(READ_BACK, data_url)
-        finally:
-            browser.close()
+    page = browser.new_page()
+    try:
+        recovered = page.evaluate(READ_BACK, data_url)
+    finally:
+        page.close()
 
     assert bytes(recovered[: len(payload)]) == payload, (
         "chromium did not return the stored bytes. Colour management or alpha "
@@ -60,28 +52,26 @@ def test_a_png_block_survives_a_canvas_round_trip():
     )
 
 
-def test_browser_imports_the_decoder_and_recovers_a_mixed_codec_container(tmp_path):
-    playwright = pytest.importorskip("playwright.sync_api")
+def test_browser_imports_the_decoder_and_recovers_a_mixed_codec_container(tmp_path, browser):
     scene = pack_scene(a_cloud(300))
     path = tmp_path / "scene.splatc"
     write_container(scene, path, codecs={"means": "raw", "sh0": "png"})
     decoder = Path(__file__).resolve().parents[1] / "viewer/decode_container.mjs"
     module_url = "data:text/javascript;base64," + base64.b64encode(decoder.read_bytes()).decode()
     payload = "data:application/octet-stream;base64," + base64.b64encode(path.read_bytes()).decode()
-    with playwright.sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM, headless=True)
-        try:
-            decoded = browser.new_page().evaluate(
-                """async ([moduleUrl, payload]) => {
-                    const { decodeContainer } = await import(moduleUrl);
-                    const decoded = await decodeContainer(await (await fetch(payload)).arrayBuffer());
-                    for (const block of Object.values(decoded.blocks)) block.values = Array.from(block.values);
-                    return decoded;
-                }""",
-                [module_url, payload],
-            )
-        finally:
-            browser.close()
+    page = browser.new_page()
+    try:
+        decoded = page.evaluate(
+            """async ([moduleUrl, payload]) => {
+                const { decodeContainer } = await import(moduleUrl);
+                const decoded = await decodeContainer(await (await fetch(payload)).arrayBuffer());
+                for (const block of Object.values(decoded.blocks)) block.values = Array.from(block.values);
+                return decoded;
+            }""",
+            [module_url, payload],
+        )
+    finally:
+        page.close()
     assert decoded["count"] == scene.count
     assert decoded["sh_degree"] == scene.sh_degree
     for name, field in scene.fields.items():
