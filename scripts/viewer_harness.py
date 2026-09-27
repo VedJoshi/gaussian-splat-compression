@@ -123,6 +123,12 @@ def psnr(image: np.ndarray, reference: np.ndarray) -> float:
     return float("inf") if mse == 0 else 10.0 * np.log10(1.0 / mse)
 
 
+def channel_bias(image: np.ndarray, reference: np.ndarray) -> list[float]:
+    """Mean signed image-minus-reference per channel, in 8-bit levels."""
+    difference = image.astype(np.float64) - reference.astype(np.float64) * 255.0
+    return difference.reshape(-1, difference.shape[-1]).mean(axis=0).tolist()
+
+
 if __name__ == "__main__":
     with serve() as base:
         print(f"{base}/viewer/index.html?url=/out/truck/container-prune80/scene.splatc")

@@ -37,3 +37,13 @@ def test_psnr_of_an_image_against_itself_is_infinite_and_one_level_off_is_48db()
     image = np.full((4, 4, 3), 128, dtype=np.uint8)
     assert psnr(image, image / 255.0) == float("inf")
     assert abs(psnr(image, (image + 1) / 255.0) - 48.1308) < 1e-3
+
+
+def test_channel_bias_is_the_signed_mean_difference_in_levels():
+    from scripts.viewer_harness import channel_bias
+
+    image = np.zeros((2, 2, 3), dtype=np.uint8)
+    image[..., 0] = 100
+    image[..., 1] = 50
+    reference = np.full((2, 2, 3), 52 / 255.0)
+    np.testing.assert_allclose(channel_bias(image, reference), [48.0, -2.0, -52.0])
