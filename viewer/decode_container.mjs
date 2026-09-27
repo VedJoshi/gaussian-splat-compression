@@ -1,6 +1,5 @@
-// Reference decoder for the .splatc container. Decode and compare only; the
-// viewer lands in milestone 6. Kept dependency-free so it runs identically
-// under node and in a browser module.
+// Reference decoder for the .splatc container, shared by the viewer and the
+// Node parity tests. Dependency-free so it runs identically in both.
 
 const MAGIC = 'SPLATC';
 const VERSION_MAJOR = 1;
@@ -151,7 +150,11 @@ export async function decodeContainer(buffer) {
     blocks[block.name] = {
       dtype: block.dtype,
       stored_shape: block.stored_shape,
-      values: Array.from(values),
+      shape: block.shape,
+      bits: block.bits,
+      mins: block.mins,
+      maxs: block.maxs,
+      values,
     };
   }
 
@@ -178,6 +181,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       const decoded = await decodeContainer(
         file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength),
       );
+      for (const block of Object.values(decoded.blocks)) block.values = Array.from(block.values);
       await writeFile(output, JSON.stringify(decoded), 'utf-8');
     } catch (error) {
       console.error(String(error && error.message ? error.message : error));

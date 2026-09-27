@@ -15,7 +15,7 @@ import pytest
 from splatpipe.formats.container import pack_scene, write_container
 from tests.test_codecs import a_cloud
 
-DECODER = Path(__file__).resolve().parents[1] / "scripts" / "decode_container.mjs"
+DECODER = Path(__file__).resolve().parents[1] / "viewer" / "decode_container.mjs"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node is not on PATH"
@@ -67,3 +67,17 @@ def test_node_refuses_a_tampered_block(tmp_path):
     )
     assert result.returncode != 0
     assert "checksum" in result.stderr.lower()
+
+
+def test_node_reports_each_blocks_dequantisation_bounds(tmp_path):
+    scene = pack_scene(a_cloud(64), order="none")
+    path = tmp_path / "scene.splatc"
+    write_container(scene, path)
+
+    decoded = _decode_with_node(path, tmp_path)
+    for name, field in scene.fields.items():
+        block = decoded["blocks"][name]
+        assert block["bits"] == field.bits, name
+        assert block["shape"] == list(field.shape), name
+        np.testing.assert_array_equal(np.float32(block["mins"]), np.ravel(field.mins))
+        np.testing.assert_array_equal(np.float32(block["maxs"]), np.ravel(field.maxs))
