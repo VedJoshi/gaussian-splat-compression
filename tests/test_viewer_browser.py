@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from scripts.viewer_harness import REPO, capture, serve, viewer_url, wait_for_frame, watch_errors
-from splatpipe.formats.container import PackedScene, write_container
+from splatpipe.formats.container import PackedScene, pack_scene, write_container
+from splatpipe.gaussians import GaussianCloud
 from tests.test_viewer_js import a_vq_scene
 
 pytestmark = pytest.mark.gpu
@@ -95,3 +96,25 @@ def test_a_container_without_sh_renders_dc_only_without_webgl_errors(browser, si
     page.close()
     assert errors == []
     assert image.max() > 0
+
+
+def test_a_gaussian_centred_off_screen_still_covers_the_image(browser, site):
+    root, base = site
+    # Centred 60 px below the bottom edge with sigma 50 px, so gsplat draws it over the bottom rows.
+    cloud = GaussianCloud(
+        means=np.array([[0.0, 1.8, 0.0], [0.5, -0.5, 0.5]], np.float32),
+        scales=np.log(np.array([[0.5, 0.5, 0.5], [0.01, 0.01, 0.01]], np.float32)),
+        quats=np.array([[1, 0, 0, 0], [1, 0, 0, 0]], np.float32),
+        opacities=np.array([4.0, -10.0], np.float32),
+        sh0=np.full((2, 3), 1.5, np.float32),
+        shN=np.zeros((2, 15, 3), np.float32),
+    )
+    scene = pack_scene(cloud)
+    fields = {k: v for k, v in scene.fields.items() if k != "shN"}
+    write_container(PackedScene(count=scene.count, sh_degree=0, order=scene.order, fields=fields), root / "edge.splatc")
+
+    page, errors = _open(browser, base, "/edge.splatc")
+    image = capture(page)
+    page.close()
+    assert errors == []
+    assert image[-10:].mean() > 20

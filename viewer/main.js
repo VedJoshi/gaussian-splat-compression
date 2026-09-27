@@ -220,20 +220,24 @@ void main () {
     vec4 cam = view * vec4(world, 1);
     vec4 pos2d = projection * cam;
 
-    float clip = 1.2 * pos2d.w;
-    if (cam.z < ${ZNEAR} || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
+    vec4 appearance = uintBitsToFloat(texelFetch(u_texture, base + ivec2(2, 0), 0));
+    if (cam.z < ${ZNEAR} || appearance.a < 1.0 / 255.0) {
         gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         return;
     }
 
     uvec4 cov = texelFetch(u_texture, base + ivec2(1, 0), 0);
-    vec4 appearance = uintBitsToFloat(texelFetch(u_texture, base + ivec2(2, 0), 0));
     vec2 u1 = unpackHalf2x16(cov.x), u2 = unpackHalf2x16(cov.y), u3 = unpackHalf2x16(cov.z);
     mat3 Vrk = 0.25 * mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
 
+    // gsplat's persp_proj clamps the Jacobian's view ray to 0.3 tan-fov beyond the image edges.
+    vec2 principal = vec2(projection[2][0] + 1.0, 1.0 - projection[2][1]) * 0.5 * viewport;
+    vec2 margin = 0.15 * viewport / focal;
+    vec2 limNeg = principal / focal + margin, limPos = (viewport - principal) / focal + margin;
+    vec2 t = cam.z * clamp(cam.xy / cam.z, -limNeg, limPos);
     mat3 J = mat3(
-        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z),
-        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z),
+        focal.x / cam.z, 0., -(focal.x * t.x) / (cam.z * cam.z),
+        0., -focal.y / cam.z, (focal.y * t.y) / (cam.z * cam.z),
         0., 0., 0.
     );
 
@@ -248,6 +252,16 @@ void main () {
     float lambda1 = mid + radius, lambda2 = mid - radius;
 
     if(lambda2 < 0.0) return;
+
+    // gsplat culls on the opacity-aware bounding box, not the centre.
+    vec2 vCenter = vec2(pos2d) / pos2d.w;
+    vec2 pixel = (vCenter + 1.0) * 0.5 * viewport;
+    float extend = min(3.33, sqrt(2.0 * log(appearance.a * 255.0)));
+    vec2 bbox = ceil(extend * sqrt(vec2(cov2d[0][0], cov2d[1][1])));
+    if (any(lessThanEqual(pixel + bbox, vec2(0.0))) || any(greaterThanEqual(pixel - bbox, viewport))) {
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        return;
+    }
     vec2 diagonalVector = normalize(vec2(cov2d[0][1], lambda1 - cov2d[0][0]));
     // One standard deviation in pixels along each principal axis.
     vec2 majorAxis = min(sqrt(lambda1), 1024.0) * diagonalVector;
@@ -259,7 +273,6 @@ void main () {
     vColor = vec4(max(rgb, 0.0), appearance.a);
     vPosition = position;
 
-    vec2 vCenter = vec2(pos2d) / pos2d.w;
     gl_Position = vec4(
         vCenter + 2.0 * (position.x * majorAxis + position.y * minorAxis) / viewport,
         0.0, 1.0);
