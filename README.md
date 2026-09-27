@@ -42,7 +42,9 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 6 (done):** A fork of antimatter15's WebGL viewer that loads the `.splatc` container and renders degree-3 SH from the VQ codebook.
 
-**Milestone 7–8 (planned):** Multi-scene evaluation and static deployment, writeup.
+**Milestone 7 (done, not yet deployed):** Two more scenes through the same pipeline, a static site with a scene picker, and a GitHub Pages workflow.
+
+**Milestone 8 (planned):** Writeup.
 
 ### Known constraints
 
@@ -190,8 +192,9 @@ resolution. The 30 dB floor on full SH was fixed before measurement.
 The first run scored 26.72 dB on view 20: the upstream viewer culled Gaussians
 whose centres fell outside 1.2x the viewport, dropping near-camera ground whose
 footprint still covered the image. Matching gsplat's footprint culling fixed it.
-The remaining gap is mostly a uniform darkening of about two 8-bit levels,
-not yet attributed. DC only falls below 30 dB on two views; that is the loss
+The viewer is also about two 8-bit levels darker than gsplat, not yet
+attributed. A uniform 2-level offset alone would cap PSNR at 42.1 dB, so it
+accounts for only about a quarter of the measured error. DC only falls below 30 dB on two views; that is the loss
 of view-dependent colour, not a rendering fault.
 
 Load and frame times, 12,278,198-byte container from a local server,
@@ -217,6 +220,85 @@ Measure the viewer (writes `out/truck/viewer-m6/`; the performance run opens a C
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m scripts.viewer_measure quality"
 .venv\Scripts\python.exe -m scripts.viewer_measure performance
 ```
+
+## Milestone 7 result
+
+Three scenes now run through one pipeline, the same for all: `splatpipe run`,
+then the retained-count sweep (`prune --retain 95,90,80,70`). The last step is
+`splatpipe export`, which writes the 80% pruned `.splatc` with its own
+4,096-entry SH codebook and per-block codecs, then scores that exact file on
+held-out views. Truck deploys the Milestone 5 file; `export` reproduces its
+blocks exactly, and the files differ only in the commit id in the descriptor.
+Train and playroom come from the archive the truck scene already used.
+
+| Scene | Trained | Deployed | Container | Ratio | Train time | PLY PSNR / SSIM / LPIPS | Container PSNR / SSIM / LPIPS |
+|---|---:|---:|---:|---:|---:|---|---|
+| truck | 1,000,000 | 800,000 | 12,278,198 | 19.22x | 481.5 s | 24.400 / 0.8581 / 0.1375 | 24.258 / 0.8536 / 0.1433 |
+| train | 1,000,000 | 800,000 | 12,328,092 | 19.14x | 486.9 s | 21.069 / 0.7949 / 0.2033 | 20.878 / 0.7899 / 0.2101 |
+| playroom | 839,981 | 671,985 | 10,254,967 | 19.33x | 359.1 s | 28.660 / 0.8902 / 0.2411 | 28.656 / 0.8896 / 0.2436 |
+
+Held-out views: 32, 38 and 29 (every eighth image). Ratios are against each
+scene's raw PLY. Playroom stops short of the 1,000,000 cap: MCMC grows the
+cloud 5% per refinement from 37,005 COLMAP points, which reaches exactly
+839,981 by step 7,000. Peak board memory while training was 3.15 GiB (train)
+and 2.94 GiB (playroom).
+
+**Pruning generalises; contribution ranking does not beat opacity.** The 80%
+point passes the fixed Milestone 4 limits on all three scenes. On train and
+playroom even 70% passes (truck's 70% fails the SSIM limit). At 80%, opacity
+ranking matches or beats contribution ranking on SSIM and LPIPS in every scene,
+and on PSNR in playroom (28.6566 vs 28.6552 dB). At 70% on playroom, opacity is
+0.019 dB better. The simpler ranking is at least as good here.
+
+**Viewer against gsplat**, same decoded cloud, held-out views 0, 10 and 20. The
+30 dB floor on full SH is unchanged.
+
+| Scene | View 0 | View 10 | View 20 | DC only (0 / 10 / 20) | Mean bias, levels (R, G, B), view 10 |
+|---|---:|---:|---:|---|---|
+| truck | 36.00 | 36.86 | 36.53 | 30.87 / 29.24 / 29.79 | -2.0, -1.8, -1.7 |
+| train | 37.62 | 38.19 | 39.36 | 27.57 / 27.61 / 25.54 | -1.5, -1.4, -1.7 |
+| playroom | 34.35 | 31.77 | 31.99 | 32.05 / 30.36 / 28.64 | -2.6, -4.6, -6.9 |
+
+The first run failed: train view 0 scored 29.90 dB. A stack of near-opaque sky
+Gaussians sits within 2 mm of depth. The viewer's 16-bit depth buckets spanned
+the whole scene, 147 units because of stray splats, so each bucket was 2.2 mm
+wide. That whole stack fell into one bucket and drew in storage order, not depth
+order. The viewer now sorts by exact float32 depth with a two-pass radix sort,
+and a browser test pins the case. The fix raised train view 0 to 37.62 dB and
+truck by 0.5–0.7 dB over the Milestone 6 figures above. Sorting now takes a
+median of 21–35 ms in the worker, against 10–17 ms before; frames are
+unaffected.
+
+The darkening is not uniform across scenes. The mean signed difference is -1.2
+to -2.6 levels on truck and train, but up to -6.9 in playroom's blue channel.
+It remains unattributed.
+
+Load and frames: the built site served locally, 1280x800, Chromium on an RTX
+4050 Laptop GPU. First frame (full SH) takes 930 / 916 / 758 ms for truck /
+train / playroom. Frames run at 75 fps (13.3 ms, vsync-bound) with a median
+render time of 5.4–5.9 ms. Load over the public network is measured only after
+deployment and is reported, not gated.
+
+The site (`site/index.html`, `viewer/`, `scenes/`) is assembled by
+`scripts/build_site.py`, which refuses any scene whose SHA-256 differs from
+`site/SHA256SUMS`. `.github/workflows/pages.yml` runs manually: it downloads the
+three scenes from Release `scenes-v1`, builds, and deploys to GitHub Pages. The
+scene files are not committed to the repository.
+
+```bat
+.venv\Scripts\python.exe scriptsuild_site.py out
+elease\scenes-v1 out\site
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m scripts.viewer_measure quality --scene train"
+.venv\Scripts\python.exe -m scripts.viewer_measure performance --scene train
+.venv\Scripts\python.exe -m scripts.viewer_measure network --scene train --base https://vedjoshi.github.io/gaussian-splat-compression
+```
+
+`--scene` measures the built site in `out/site` and writes `out/<scene>/viewer-m7/`.
+
+Data licences: Truck and Train are from Tanks and Temples (Knapitsch et al.
+2017), CC BY 4.0 with an added clause prohibiting commercial use. Playroom is
+from Deep Blending (Hedman et al. 2018), whose project page states no licence;
+it is published here with attribution only.
 
 ## Setup (Windows)
 
@@ -247,7 +329,7 @@ scripts\env.bat
 .venv\Scripts\splatpipe.exe run data\tandt\truck --config configs\truck.toml --out out
 ```
 
-Outputs: `out/truck/artifacts/{scene.ply, scene.splat}`, `manifest.json`, config, logs.
+Outputs: `out/truck/artifacts/{scene.ply, scene.splat}`, `manifest.json`, config, logs. `get_data.py tandt/train db/playroom` extracts the other deployed scenes; `configs/train.toml` and `configs/playroom.toml` match truck's.
 
 Benchmark codecs against held-out views:
 ```bat
@@ -282,6 +364,13 @@ Read a container from JavaScript:
 node viewer\decode_container.mjs out\truck\container\scene.splatc out\truck\container\decoded.json
 ```
 
+Write the deployable container (80% contribution pruning, the pruned point's 4,096-entry SH codebook, per-block codecs) and score it on held-out views; needs `splatpipe prune` first:
+```bat
+.venv\Scripts\splatpipe.exe export out	ruck --scene data	andt	ruck
+```
+
+Outputs: `out/truck/export/{scene.splatc, meta.json, curve.json, curve.png}`.
+
 Add `--skip-train` to re-export without retraining.
 
 ### Tests
@@ -296,7 +385,7 @@ Full tier (GPU training, rendering, and Chromium):
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected counts after Milestone 6: 290 fast tests with 22 slow tests deselected; 312 tests in the complete tier. Node parity tests require Node, and the browser tests require Playwright and Chromium.
+Expected counts after Milestone 7: 301 fast tests with 23 slow tests deselected; 324 tests in the complete tier. Node parity tests require Node, and the browser tests require Playwright and Chromium.
 
 ## Repository layout
 
@@ -308,6 +397,8 @@ Expected counts after Milestone 6: 290 fast tests with 22 slow tests deselected;
 | `scripts/env.bat` | MSVC environment loader |
 | `scripts/setup_env.py` | gsplat checkout and Windows patches |
 | `scripts/get_data.py` | Data download and preprocessing |
+| `scripts/build_site.py` | Assemble the static site from pinned scenes |
+| `site/` | Scene picker and `SHA256SUMS` for the deployed scenes |
 | `viewer/` | WebGL viewer for `.splatc`, forked from antimatter15/splat (MIT) |
 | `tests/` | CPU tier (fast) and GPU tier (full)|
 
@@ -321,7 +412,7 @@ Expected counts after Milestone 6: 290 fast tests with 22 slow tests deselected;
 | 4. Contribution pruning | Done |
 | 5. Container format | Done |
 | 6. Viewer integration | Done |
-| 7. Multi-scene evaluation | Planned |
+| 7. Multi-scene deployment | Done; site awaiting deployment |
 | 8. Evaluation writeup | Planned |
 
 ## Excluded from Git
