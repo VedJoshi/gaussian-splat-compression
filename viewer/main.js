@@ -542,9 +542,6 @@ async function main() {
             inv = rotate4(inv, dx, 0, 1, 0);
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
-            // let postAngle = Math.atan2(inv[0], inv[10])
-            // inv = rotate4(inv, postAngle - preAngle, 0, 0, 1)
-            // console.log(postAngle)
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
@@ -585,7 +582,6 @@ async function main() {
                 startY = e.touches[0].clientY;
                 down = 1;
             } else if (e.touches.length === 2) {
-                // console.log('beep')
                 carousel = false;
                 startX = e.touches[0].clientX;
                 altX = e.touches[1].clientX;
@@ -678,16 +674,6 @@ async function main() {
     let lastFrame = 0;
     let avgFps = 0;
     let start = 0;
-
-    window.addEventListener("gamepadconnected", (e) => {
-        const gp = navigator.getGamepads()[e.gamepad.index];
-        console.log(
-            `Gamepad connected at index ${gp.index}: ${gp.id}. It has ${gp.buttons.length} buttons and ${gp.axes.length} axes.`,
-        );
-    });
-    window.addEventListener("gamepaddisconnected", (e) => {
-        console.log("Gamepad disconnected");
-    });
 
     const frame = (now) => {
         let inv = invert4(viewMatrix);

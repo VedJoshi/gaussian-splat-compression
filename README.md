@@ -40,7 +40,9 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 5 (done):** A single-file `.splatc` container with typed, checksummed, independently addressable blocks, a reference JavaScript decoder, and a staged measurement of block codec, ordering and layout.
 
-**Milestone 6–8 (planned):** Viewer, multi-scene evaluation, writeup.
+**Milestone 6 (done):** A fork of antimatter15's WebGL viewer that loads the `.splatc` container and renders degree-3 SH from the VQ codebook.
+
+**Milestone 7–8 (planned):** Multi-scene evaluation and static deployment, writeup.
 
 ### Known constraints
 
@@ -166,6 +168,56 @@ With consistent payload accounting, struct-of-arrays uses 12,274,156 bytes again
 
 Artifacts are under `out/truck/container-prune80/`. The measured container matches the separately packed file block-for-block, and the JavaScript decoder matches Python on all seven blocks. SHA-256 checks confirmed that all 76 existing M2/M3, M4, and unpruned M5 artifact files remained unchanged.
 
+## Milestone 6 result
+
+The viewer is a fork of antimatter15's WebGL splat viewer. A module worker
+decodes the container with the reference decoder, reconstructs activated
+fields, and packs three texels per Gaussian; the vertex shader evaluates
+degree-3 SH from the 4,096-entry codebook, indexed by each Gaussian's label.
+It mirrors gsplat's classic rasteriser: Jacobian clamped 0.3 tan-FOV beyond
+the image, culling on the opacity-aware footprint rather than the centre,
+0.3 px low-pass, alpha capped at 0.999 and cut below 1/255.
+
+Browser against gsplat, same decoded cloud, held-out cameras at native
+resolution. The 30 dB floor on full SH was fixed before measurement.
+
+| View | Full SH | DC only |
+|---:|---:|---:|
+| 0 | 35.48 dB | 30.73 dB |
+| 10 | 36.20 dB | 29.16 dB |
+| 20 | 36.04 dB | 29.68 dB |
+
+The first run scored 26.72 dB on view 20: the upstream viewer culled Gaussians
+whose centres fell outside 1.2x the viewport, dropping near-camera ground whose
+footprint still covered the image. Matching gsplat's footprint culling fixed it.
+The remaining gap is mostly a uniform darkening of about two 8-bit levels,
+not yet attributed. DC only falls below 30 dB on two views; that is the loss
+of view-dependent colour, not a rendering fault.
+
+Load and frame times, 12,278,198-byte container from a local server,
+1280x800, Chromium on an RTX 4050 Laptop GPU (ANGLE, D3D11). Times in ms.
+
+| Mode | First frame | Fetch | Decode | Reconstruct | Pack | Upload | Median frame | p95 frame | Median render | p95 render | Median sort |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Full SH | 801.5 | 52.1 | 127.6 | 168.5 | 103.3 | 17.4 | 13.3 | 13.5 | 6.4 | 7.3 | 9.8 |
+| DC only | 600.8 | 91.9 | 130.5 | 163.6 | 101.1 | 15.7 | 13.3 | 13.5 | 6.6 | 7.4 | 17.5 |
+
+Both targets hold: first frame under 3 s and 75 fps, the display's refresh
+rate. Reconstruction is the largest load phase, then decode; together they
+take about 0.3 s, so WASM is not warranted. Frame intervals are vsync-bound.
+Render time runs from frame start to a 1-pixel readback that waits for the GPU,
+because uncapped frame intervals only time command submission. The depth sort
+runs in the worker and does not block frames.
+
+To view locally: `.venv\Scripts\python.exe -m scripts.viewer_harness` and open the printed URL.
+Browser tests need `python -m playwright install chromium`.
+
+Measure the viewer (writes `out/truck/viewer-m6/`; the performance run opens a Chromium window):
+```bat
+cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m scripts.viewer_measure quality"
+.venv\Scripts\python.exe -m scripts.viewer_measure performance
+```
+
 ## Setup (Windows)
 
 Prerequisites (fixed paths):
@@ -244,7 +296,7 @@ Full tier (GPU training, rendering, and Chromium):
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-Expected counts after Milestone 5: 278 fast tests with 15 slow tests deselected; 293 tests in the complete tier. Node parity tests require Node, and the browser tests require Playwright and Chromium.
+Expected counts after Milestone 6: 290 fast tests with 22 slow tests deselected; 312 tests in the complete tier. Node parity tests require Node, and the browser tests require Playwright and Chromium.
 
 ## Repository layout
 
@@ -256,6 +308,7 @@ Expected counts after Milestone 5: 278 fast tests with 15 slow tests deselected;
 | `scripts/env.bat` | MSVC environment loader |
 | `scripts/setup_env.py` | gsplat checkout and Windows patches |
 | `scripts/get_data.py` | Data download and preprocessing |
+| `viewer/` | WebGL viewer for `.splatc`, forked from antimatter15/splat (MIT) |
 | `tests/` | CPU tier (fast) and GPU tier (full)|
 
 ## Roadmap
@@ -267,7 +320,7 @@ Expected counts after Milestone 5: 278 fast tests with 15 slow tests deselected;
 | 3. SH quantization | Done |
 | 4. Contribution pruning | Done |
 | 5. Container format | Done |
-| 6. Viewer integration | Planned |
+| 6. Viewer integration | Done |
 | 7. Multi-scene evaluation | Planned |
 | 8. Evaluation writeup | Planned |
 
