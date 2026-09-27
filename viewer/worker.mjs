@@ -109,28 +109,34 @@ function runSort(view) {
     if (Math.abs(dot - 1) < 0.01) return;
   }
   const start = performance.now();
-  let maxDepth = -Infinity;
-  let minDepth = Infinity;
-  const sizeList = new Int32Array(count);
+  // Exact float32 depth order, like gsplat. Depth buckets over the whole scene's range put
+  // near-coplanar Gaussians in one bucket once stray splats stretch that range.
+  const depth = new Float32Array(count);
   for (let i = 0; i < count; i += 1) {
-    const depth =
-      ((view[2] * positions[3 * i] + view[6] * positions[3 * i + 1] + view[10] * positions[3 * i + 2]) * 4096) | 0;
-    sizeList[i] = depth;
-    if (depth > maxDepth) maxDepth = depth;
-    if (depth < minDepth) minDepth = depth;
+    depth[i] = view[2] * positions[3 * i] + view[6] * positions[3 * i + 1] + view[10] * positions[3 * i + 2];
   }
-
-  // 16-bit single-pass counting sort, nearest first.
-  const depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
-  const counts0 = new Uint32Array(256 * 256);
-  for (let i = 0; i < count; i += 1) {
-    sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
-    counts0[sizeList[i]] += 1;
+  // Map float bits to unsigned keys that sort in the same order, then two 16-bit LSD radix passes.
+  const keys = new Uint32Array(depth.buffer);
+  for (let i = 0; i < count; i += 1) keys[i] = keys[i] & 0x80000000 ? ~keys[i] >>> 0 : (keys[i] | 0x80000000) >>> 0;
+  let order = new Uint32Array(count);
+  for (let i = 0; i < count; i += 1) order[i] = i;
+  let next = new Uint32Array(count);
+  const counts = new Uint32Array(65536);
+  for (const shift of [0, 16]) {
+    counts.fill(0);
+    for (let i = 0; i < count; i += 1) counts[(keys[i] >>> shift) & 0xffff] += 1;
+    for (let b = 0, total = 0; b < 65536; b += 1) {
+      const c = counts[b];
+      counts[b] = total;
+      total += c;
+    }
+    for (let i = 0; i < count; i += 1) {
+      const index = order[i];
+      next[counts[(keys[index] >>> shift) & 0xffff]++] = index;
+    }
+    [order, next] = [next, order];
   }
-  const starts0 = new Uint32Array(256 * 256);
-  for (let i = 1; i < 256 * 256; i += 1) starts0[i] = starts0[i - 1] + counts0[i - 1];
-  const depthIndex = new Uint32Array(count);
-  for (let i = 0; i < count; i += 1) depthIndex[starts0[sizeList[i]]++] = i;
+  const depthIndex = order;
 
   lastProj = view;
   self.postMessage({ depthIndex, viewProj: view, count, sortMs: performance.now() - start }, [depthIndex.buffer]);

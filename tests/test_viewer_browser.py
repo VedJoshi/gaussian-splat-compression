@@ -118,3 +118,27 @@ def test_a_gaussian_centred_off_screen_still_covers_the_image(browser, site):
     page.close()
     assert errors == []
     assert image[-10:].mean() > 20
+
+
+def test_gaussians_a_millimetre_apart_draw_in_depth_order(browser, site):
+    root, base = site
+    # Outliers stretch the depth range, as stray Gaussians do in real scenes; the green disc
+    # sits 1 mm behind the red one but comes first in storage order.
+    cloud = GaussianCloud(
+        means=np.array([[0, 0, 0.001], [0, 0, 0], [1, 1, 100], [-1, -1, -60]], np.float32),
+        scales=np.log(np.array([[0.3] * 3, [0.3] * 3, [0.01] * 3, [0.01] * 3], np.float32)),
+        quats=np.tile(np.array([1, 0, 0, 0], np.float32), (4, 1)),
+        opacities=np.array([6.0, 6.0, -10.0, -10.0], np.float32),
+        sh0=np.array([[-1.5, 1.5, -1.5], [1.5, -1.5, -1.5], [0, 0, 0], [0, 0, 0]], np.float32),
+        shN=np.zeros((4, 15, 3), np.float32),
+    )
+    scene = pack_scene(cloud, order="none")
+    fields = {k: v for k, v in scene.fields.items() if k != "shN"}
+    write_container(PackedScene(count=scene.count, sh_degree=0, order=scene.order, fields=fields), root / "stack.splatc")
+
+    page, errors = _open(browser, base, "/stack.splatc")
+    image = capture(page)
+    page.close()
+    assert errors == []
+    red, green = image[110:130, 150:170, :2].reshape(-1, 2).mean(0)
+    assert red > 150 > green, (red, green)
