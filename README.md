@@ -4,6 +4,8 @@ Reproducible research pipeline for compressing 3D Gaussian Splatting scenes.
 Trains scenes with gsplat, exports portable artifacts, measures compression
 trade-offs (rate vs. distortion) across codec families.
 
+**Live viewer:** https://vedjoshi.github.io/gaussian-splat-compression/ (truck, train and playroom, each a single `.splatc` file of 10–12 MB).
+
 ## Compression target
 
 Raw model: 236 bytes per Gaussian (59 float32 values).
@@ -42,7 +44,7 @@ Run COLMAP on your photographs separately; this pipeline reads the output.
 
 **Milestone 6 (done):** A fork of antimatter15's WebGL viewer that loads the `.splatc` container and renders degree-3 SH from the VQ codebook.
 
-**Milestone 7 (done, not yet deployed):** Two more scenes through the same pipeline, a static site with a scene picker, and a GitHub Pages workflow.
+**Milestone 7 (done):** Two more scenes through the same pipeline, a static site with a scene picker, deployed to GitHub Pages.
 
 **Milestone 8 (planned):** Writeup.
 
@@ -276,8 +278,21 @@ It remains unattributed.
 Load and frames: the built site served locally, 1280x800, Chromium on an RTX
 4050 Laptop GPU. First frame (full SH) takes 930 / 916 / 758 ms for truck /
 train / playroom. Frames run at 75 fps (13.3 ms, vsync-bound) with a median
-render time of 5.4–5.9 ms. Load over the public network is measured only after
-deployment and is reported, not gated.
+render time of 5.4–5.9 ms.
+
+Load over the public network, reported and not gated: the deployed site on
+September 29, 2026, five fresh-cache loads per scene, full SH, same machine and
+viewport.
+
+| Scene | Median first frame | Loads (ms) | Median fetch | Median throughput |
+|---|---:|---|---:|---:|
+| truck | 2,052 ms | 3,012 / 2,052 / 2,380 / 1,275 / 1,119 | 797 ms | 123.2 Mbit/s |
+| train | 1,175 ms | 1,604 / 1,130 / 1,965 / 1,175 / 1,117 | 581 ms | 169.6 Mbit/s |
+| playroom | 964 ms | 1,516 / 989 / 964 / 961 / 950 | 477 ms | 172.0 Mbit/s |
+
+Every load stayed under 3 s except truck's first, at 3,012 ms, and no load
+logged a console error. These numbers depend on the connection: fetching
+12.3 MB within 3 s needs about 44 Mbit/s.
 
 The site (`site/index.html`, `viewer/`, `scenes/`) is assembled by
 `scripts/build_site.py`, which refuses any scene whose SHA-256 differs from
@@ -286,8 +301,7 @@ three scenes from Release `scenes-v1`, builds, and deploys to GitHub Pages. The
 scene files are not committed to the repository.
 
 ```bat
-.venv\Scripts\python.exe scriptsuild_site.py out
-elease\scenes-v1 out\site
+.venv\Scripts\python.exe scripts\build_site.py out\release\scenes-v1 out\site
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m scripts.viewer_measure quality --scene train"
 .venv\Scripts\python.exe -m scripts.viewer_measure performance --scene train
 .venv\Scripts\python.exe -m scripts.viewer_measure network --scene train --base https://vedjoshi.github.io/gaussian-splat-compression
@@ -412,7 +426,7 @@ Expected counts after Milestone 7: 301 fast tests with 23 slow tests deselected;
 | 4. Contribution pruning | Done |
 | 5. Container format | Done |
 | 6. Viewer integration | Done |
-| 7. Multi-scene deployment | Done; site awaiting deployment |
+| 7. Multi-scene deployment | Done |
 | 8. Evaluation writeup | Planned |
 
 ## Excluded from Git
