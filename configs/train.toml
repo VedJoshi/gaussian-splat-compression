@@ -1,0 +1,12 @@
+# Same settings as truck.toml, so every deployed scene runs one pipeline.
+name = "train"
+
+[train]
+max_steps = 7000
+cap_max = 1000000
+data_factor = 1
+test_every = 8
+strategy = "mcmc"
+
+[export]
+order = "morton"

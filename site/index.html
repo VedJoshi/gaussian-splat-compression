@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Compressed Gaussian Splats</title>
+<style>
+  body { margin: 0 auto; max-width: 42rem; padding: 2rem 1rem; font: 16px/1.5 system-ui, sans-serif; background: #111; color: #ddd; }
+  a { color: #8cf; }
+  li { margin: 0.5rem 0; }
+  small { color: #999; }
+</style>
+</head>
+<body>
+<h1>Compressed Gaussian Splats</h1>
+<p>Each scene is one <code>.splatc</code> file of about 12 MB, rendered in the browser with full view-dependent colour.
+Drag to orbit, arrow keys to move.</p>
+<ul id="scenes"></ul>
+<p><a href="https://github.com/VedJoshi/gaussian-splat-compression">Source, method and measurements</a></p>
+<p><small>
+Truck and Train: <a href="https://www.tanksandtemples.org/">Tanks and Temples</a> (Knapitsch et al. 2017), CC BY 4.0, non-commercial use only.
+Playroom: <a href="http://visual.cs.ucl.ac.uk/pubs/deepblending/">Deep Blending</a> (Hedman et al. 2018), shown with attribution; no licence is stated for it.
+Viewer forked from <a href="https://github.com/antimatter15/splat">antimatter15/splat</a> (MIT).
+</small></p>
+<script>
+// A held-out camera per scene (view 0; playroom's view 0 faces a bare wall, so view 12).
+// No orbit: upstream's fixed 2.5 and 6 unit swing leaves every scene's captured region.
+const scenes = {
+  truck: { view: [0.421586, -0.029541, 0.906307, 0.0, -0.904497, -0.084704, 0.417983, 0.0, 0.064421, -0.995968, -0.06243, 0.0, -0.338548, -0.001522, 1.078865, 1.0], fx: 581.925, fy: 578.67 },
+  train: { view: [0.87383, -0.374707, -0.309865, 0.0, 0.39858, 0.187011, 0.897864, 0.0, -0.278488, -0.908087, 0.312767, 0.0, 0.175485, 0.177794, 1.427035, 1.0], fx: 580.09, fy: 582.33 },
+  playroom: { view: [-0.953439, -0.148796, 0.262324, 0.0, -0.248241, 0.881142, -0.402448, 0.0, -0.171262, -0.44883, -0.877053, 0.0, 0.35565, 0.659598, 0.72995, 1.0], fx: 1040.007, fy: 1040.193 },
+};
+const list = document.getElementById("scenes");
+for (const [name, camera] of Object.entries(scenes)) {
+  const link = document.createElement("a");
+  link.href = `viewer/index.html?url=../scenes/${name}.splatc&camera=${encodeURIComponent(JSON.stringify(camera))}`;
+  link.textContent = name[0].toUpperCase() + name.slice(1);
+  list.appendChild(document.createElement("li")).appendChild(link);
+}
+</script>
+</body>
+</html>

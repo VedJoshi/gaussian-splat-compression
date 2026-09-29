@@ -158,6 +158,15 @@ def main(argv: list[str] | None = None) -> int:
         help="reuse the SH codebook in this shvq artifact directory instead of storing shN per Gaussian",
     )
 
+    export = subparsers.add_parser(
+        "export", help="write the deployable pruned container and score it on held-out views"
+    )
+    export.add_argument("run_dir", type=Path, help="a run directory that splatpipe prune has measured")
+    export.add_argument("--scene", type=Path, required=True, help="the COLMAP scene it was trained on")
+    export.add_argument("--data-factor", type=int, default=1)
+    export.add_argument("--test-every", type=int, default=8)
+    export.add_argument("--retain", type=int, default=80, help="whole percentage of Gaussians to keep")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "run":
@@ -187,6 +196,17 @@ def main(argv: list[str] | None = None) -> int:
                 data_factor=args.data_factor,
                 test_every=args.test_every,
             )
+        elif args.command == "export":
+            from splatpipe.bench.export import run_export
+
+            result = run_export(
+                args.run_dir,
+                args.scene,
+                retained_percent=args.retain,
+                data_factor=args.data_factor,
+                test_every=args.test_every,
+            )
+            print(f"container {result['bytes']:,} bytes, {result['retained_gaussians']:,} Gaussians")
         else:
             from splatpipe.bench.pack import run_pack_bench
 
