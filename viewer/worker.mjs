@@ -173,6 +173,7 @@ async function load(url) {
       codebook,
       hasCodebook: scene.codebook !== null,
       count: scene.count,
+      bytes: buffer.byteLength,
       phases: { fetch: t1 - t0, decode: t2 - t1, reconstruct: t3 - t2, pack: t4 - t3 },
     },
     [gaussians.texdata.buffer, codebook.data.buffer],

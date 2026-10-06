@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
 	<head>
-		<title>WebGL Gaussian Splat Viewer</title>
+		<title>Compressing 3D Gaussian Splats · Viewer</title>
 		<meta charset="utf-8" />
 		<link rel="icon" href="data:," />
 		<meta
@@ -180,31 +180,27 @@
 				border-radius: 10px;
 				font-size: x-small;
 			}
-			body.nohf .nohf {
-				display: none;
+			#home {
+				font-size: small;
+				text-decoration: none;
 			}
-			body.nohf #progress, body.nohf .cube-face {
-				background: #ff9d0d;
+			#credit {
+				position: absolute;
+				bottom: 10px;
+				left: 15px;
+				z-index: 100;
+				font-size: x-small;
+				opacity: 0.7;
 			}
 		</style>
 	</head>
 	<body>
-		<script>
-			if(location.host.includes('hf.space')) document.body.classList.add('nohf');
-		</script>
 		<div id="info">
-			<h3 class="nohf">WebGL 3D Gaussian Splat Viewer</h3>
-			<p>
-			<small class="nohf">
-				By <a href="https://twitter.com/antimatter15">Kevin Kwok</a>.
-				Code on
-				<a href="https://github.com/antimatter15/splat">Github</a
-				>.
-			</small>
-		</p>
-
+			<a id="home" href="../index.html">&larr; Compressing 3D Gaussian Splats</a>
+			<h3 id="scene-name"></h3>
+			<p id="scene-stats"></p>
 			<details>
-			<summary>Use mouse or arrow keys to navigate.</summary>
+			<summary>Drag to orbit, scroll or pinch to zoom, arrow keys to move.</summary>
 
 <div id="instructions">movement (arrow keys)
 - left/right arrow keys to strafe side to side
@@ -241,7 +237,6 @@ other
 </div>
 
 		</details>
-			
 		</div>
 
 		<div id="message"></div>
@@ -267,6 +262,7 @@ other
 		<div id="caminfo">
 			<span id="camid"></span>
 		</div>
+		<div id="credit">Renderer forked from <a href="https://github.com/antimatter15/splat">antimatter15/splat</a> (MIT)</div>
 		<script type="module" src="main.js"></script>
 	</body>
 </html>

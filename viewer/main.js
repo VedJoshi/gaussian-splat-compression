@@ -316,6 +316,10 @@ async function main() {
     const homeViewMatrix = viewMatrix;
     const scene = params.get("url");
     if (!scene) throw new Error("no scene: pass ?url=<scene.splatc>");
+    const sceneName = scene.split("/").pop().replace(/\.splatc$/, "");
+    const title = sceneName.charAt(0).toUpperCase() + sceneName.slice(1);
+    document.getElementById("scene-name").innerText = title;
+    document.title = `${title} · Compressing 3D Gaussian Splats`;
 
     const worker = new Worker(new URL("./worker.mjs", import.meta.url), { type: "module" });
     worker.onerror = (e) => fail(`viewer worker failed to start: ${e.message}`);
@@ -415,6 +419,7 @@ async function main() {
     resize();
 
     let sortedView = null;
+    let sceneInfo = null;
     worker.onmessage = (e) => {
         if (e.data.error) {
             fail(e.data.error);
@@ -437,6 +442,7 @@ async function main() {
             gl.activeTexture(gl.TEXTURE0);
             gl.uniform1i(u_sh, shRequested && hasCodebook ? 1 : 0);
             viewerStats.phases = { ...e.data.phases, upload: performance.now() - uploadStart };
+            sceneInfo = { count: e.data.count, bytes: e.data.bytes };
         } else if (e.data.depthIndex) {
             gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, e.data.depthIndex, gl.DYNAMIC_DRAW);
@@ -842,7 +848,12 @@ async function main() {
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-            if (viewerStats.firstFrameMs === null) viewerStats.firstFrameMs = performance.now();
+            if (viewerStats.firstFrameMs === null) {
+                viewerStats.firstFrameMs = performance.now();
+                document.getElementById("scene-stats").innerText =
+                    `${sceneInfo.count.toLocaleString("en-US")} Gaussians · ${(sceneInfo.bytes / 1e6).toFixed(1)} MB · ` +
+                    `loaded in ${(viewerStats.firstFrameMs / 1000).toFixed(1)} s`;
+            }
             if (pendingCapture && nearView(sortedView, viewProj)) {
                 const { width, height } = gl.canvas;
                 const pixels = new Uint8Array(width * height * 4);

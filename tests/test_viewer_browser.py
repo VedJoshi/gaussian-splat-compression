@@ -51,6 +51,25 @@ def test_the_viewer_renders_a_container(browser, site):
     assert stats["firstFrameMs"] > 0
 
 
+def test_the_panel_names_the_scene_and_credits_the_renderer(browser, site):
+    _, base = site
+    page, errors = _open(browser, base, "/scene.splatc")
+    name = page.inner_text("#scene-name")
+    stats = page.inner_text("#scene-stats")
+    home = page.get_attribute("#home", "href")
+    credit = page.get_attribute("#credit a", "href")
+    body = page.inner_text("body")
+    page.close()
+
+    assert errors == []
+    assert name == "Scene"
+    assert stats.startswith("300 Gaussians · ")
+    assert " MB · loaded in " in stats and stats.endswith(" s")
+    assert home == "../index.html"
+    assert credit == "https://github.com/antimatter15/splat"
+    assert "Kevin Kwok" not in body
+
+
 def test_a_corrupted_container_is_reported_not_hung(browser, site):
     root, base = site
     data = bytearray((root / "scene.splatc").read_bytes())
@@ -59,17 +78,21 @@ def test_a_corrupted_container_is_reported_not_hung(browser, site):
 
     page, errors = _open(browser, base, "/scene.splatc")
     message = page.inner_text("#message")
+    stats = page.inner_text("#scene-stats")
     page.close()
     assert "checksum" in message
     assert len(errors) == 1
+    assert stats == ""
 
 
 def test_a_missing_scene_is_reported_not_hung(browser, site):
     _, base = site
     page, _ = _open(browser, base, "/absent.splatc")
     message = page.inner_text("#message")
+    stats = page.inner_text("#scene-stats")
     page.close()
     assert "404" in message
+    assert stats == ""
 
 
 def test_sh_changes_the_image_and_sh_off_matches_dc(browser, site):
