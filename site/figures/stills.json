@@ -1,0 +1,23 @@
+{
+  "truck": {
+    "view": 0,
+    "width": 979,
+    "height": 546,
+    "original_db": 24.268925736289585,
+    "compressed_db": 24.16381256592169
+  },
+  "train": {
+    "view": 0,
+    "width": 980,
+    "height": 545,
+    "original_db": 20.28206797295105,
+    "compressed_db": 20.232780638616873
+  },
+  "playroom": {
+    "view": 12,
+    "width": 1000,
+    "height": 658,
+    "original_db": 30.053427750824003,
+    "compressed_db": 27.567229195921925
+  }
+}
