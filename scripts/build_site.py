@@ -1,4 +1,4 @@
-"""Assemble the static site: picker, viewer, and the scenes pinned by site/SHA256SUMS.
+"""Assemble the static site: write-up page, figures, viewer, and the scenes pinned by site/SHA256SUMS.
 
     python scripts/build_site.py <scenes-dir> <out-dir>
 
@@ -35,6 +35,7 @@ def build(scenes_dir: Path, out_dir: Path, sums: Path = SUMS) -> None:
 
     shutil.copytree(REPO / "viewer", out_dir / "viewer")
     shutil.copy2(REPO / "site" / "index.html", out_dir / "index.html")
+    shutil.copytree(REPO / "site" / "figures", out_dir / "figures")
     (out_dir / "scenes").mkdir()
     for name in pinned(sums):
         shutil.copy2(scenes_dir / name, out_dir / "scenes" / name)

@@ -16,11 +16,12 @@ def a_scene_dir(tmp_path):
     return scenes, sums
 
 
-def test_builds_the_picker_viewer_and_pinned_scenes(tmp_path):
+def test_builds_the_page_figures_viewer_and_pinned_scenes(tmp_path):
     scenes, sums = a_scene_dir(tmp_path)
     build(scenes, tmp_path / "site", sums)
     site = tmp_path / "site"
     assert (site / "index.html").is_file()
+    assert (site / "figures" / "curve.svg").is_file()
     assert (site / "viewer" / "index.html").is_file()
     assert (site / "viewer" / "worker.mjs").is_file()
     assert (site / "scenes" / "truck.splatc").read_bytes() == b"SPLATC-truck"
