@@ -62,7 +62,7 @@
 <header>
   <h1>Compressing 3D Gaussian Splats for the Web</h1>
   <p class="byline">Ved Joshi · <a href="https://github.com/VedJoshi/gaussian-splat-compression">Source on GitHub</a></p>
-  <p class="lede">A trained 3D scene is 236 MB. This pipeline gets it to 12 MB, 19 times smaller, for a 0.14 dB drop in held-out PSNR, and renders it live in your browser.</p>
+  <p class="lede">A trained 3D scene is 236 MB. This pipeline gets it to 12 MB, 19 times smaller, for under 0.2 dB drop in held-out PSNR, and renders it live in your browser.</p>
 </header>
 
 <section aria-label="Scenes">
@@ -95,7 +95,7 @@
     <li><strong>Prune</strong>Rank each Gaussian by how much it contributes to the training-view pixels; drop the lowest 20%.<em>−20% of Gaussians, −0.009 dB</em></li>
     <li><strong>Quantise colour</strong>Replace each Gaussian's 45 higher-order colour coefficients with an index into a 4,096-entry K-means codebook.<em>The largest single saving</em></li>
     <li><strong>Pack</strong>Positions to 16 bits in log space, the rest to 8 bits, into one <code>.splatc</code> file: a block per attribute, each DEFLATE or PNG, Morton-ordered, checksummed.<em>12.3 MB</em></li>
-    <li><strong>Render</strong>WebGL2: decode in a worker, exact depth sort, full degree-3 colour on the GPU.<em>36–39 dB against gsplat</em></li>
+    <li><strong>Render</strong>WebGL2: decode in a worker, exact depth sort, full degree-3 colour on the GPU.<em>32–39 dB against gsplat</em></li>
   </ol>
 </section>
 
@@ -143,7 +143,7 @@
   <h3>Playroom</h3>
   <div class="compare">
     <figure><img src="figures/playroom-photo.jpg" width="1000" height="658" loading="lazy" alt="Held-out photo of the playroom"><figcaption>Photo</figcaption></figure>
-    <figure><img src="figures/playroom-original.jpg" width="1000" height="658" loading="lazy" alt="gsplat render of the uncompressed playroom scene"><figcaption>Uncompressed, 198 MB · 30.05 dB</figcaption></figure>
+    <figure><img src="figures/playroom-original.jpg" width="1000" height="658" loading="lazy" alt="gsplat render of the uncompressed playroom scene"><figcaption>Uncompressed, 198.2 MB · 30.05 dB</figcaption></figure>
     <figure><img src="figures/playroom-compressed.jpg" width="1000" height="658" loading="lazy" alt="This site's viewer rendering the compressed playroom scene"><figcaption>This site, 10.3 MB · 27.57 dB</figcaption></figure>
   </div>
   <p class="note">At this view the viewer scores about 2.5 dB below the reference renderer, and the white walls pick up a pink speckle. The reference renderer on the same 10.3 MB file matches the uncompressed score, so the gap comes from this site's viewer, not from compression; it is the colour shift listed under limitations.</p>
