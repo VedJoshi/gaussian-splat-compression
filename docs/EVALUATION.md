@@ -241,6 +241,13 @@ The darkening is not uniform across scenes. The mean signed difference is -1.2
 to -2.6 levels on truck and train, but up to -6.9 in playroom's blue channel.
 It remains unattributed.
 
+At playroom's held-out view 12, the camera the site's card opens at, the
+viewer scores 27.57 dB against the photo, while gsplat scores 30.05 dB on the
+uncompressed PLY and 30.00 dB on the decoded `.splatc`
+(`site/figures/stills.json`; the decoded-file figure was measured once on
+October 6, 2026). The 2.5 dB gap at that view is the viewer's, not the
+container's, and shows as a pink speckle on the white walls and cabinets.
+
 Load and frames: the built site served locally, 1280x800, Chromium on an RTX
 4050 Laptop GPU. First frame (full SH) takes 930 / 916 / 758 ms for truck /
 train / playroom. Frames run at 75 fps (13.3 ms, vsync-bound) with a median

@@ -7,6 +7,8 @@ loads and renders in the browser, including view-dependent colour.
 
 **Live viewer:** https://vedjoshi.github.io/gaussian-splat-compression/
 
+[![The Truck scene in the browser viewer, from a 12.3 MB file](site/figures/truck-compressed.jpg)](https://vedjoshi.github.io/gaussian-splat-compression/)
+
 ## What it does
 
 1. **Train** a scene from a COLMAP reconstruction with [gsplat](https://github.com/nerfstudio-project/gsplat).
