@@ -104,8 +104,8 @@ Run COLMAP on your photos first, then point `splatpipe run` at that directory.
 cmd /c "call scripts\env.bat >nul 2>&1 && .venv\Scripts\python.exe -m pytest -q -o addopts="
 ```
 
-The first command is the fast CPU tier: 301 tests, with 23 slow ones deselected.
-The second is the complete tier: 324 tests, including GPU training, rendering
+The first command is the fast CPU tier: 303 tests, with 26 slow ones deselected.
+The second is the complete tier: 329 tests, including GPU training, rendering
 and Chromium.
 
 ## Repository layout
@@ -114,7 +114,7 @@ and Chromium.
 |---|---|
 | `src/splatpipe/` | Pipeline package: training, codecs, pruning, container, benchmark |
 | `viewer/` | WebGL viewer for `.splatc`, forked from antimatter15/splat (MIT) |
-| `site/` | Scene picker and `SHA256SUMS` pinning the deployed scenes |
+| `site/` | Write-up page, its figures, and `SHA256SUMS` pinning the deployed scenes |
 | `configs/` | Per-scene training configuration |
 | `scripts/` | Data download, environment setup, site build, viewer measurement |
 | `tests/` | Fast CPU tier and complete GPU and browser tier |
@@ -138,7 +138,7 @@ Milestones 1–7 are complete:
 6. Browser viewer
 7. Three-scene deployment
 
-Milestone 8, the writeup, is next.
+Milestone 8, the write-up site, is done.
 
 ## Data and licences
 

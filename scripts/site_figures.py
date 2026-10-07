@@ -1,6 +1,6 @@
 """Render the landing page's figures into site/figures/, which is committed.
 
-    scripts\env.bat, then: python -m scripts.site_figures   # needs CUDA and a built out/site
+    scripts\\env.bat, then: python -m scripts.site_figures   # needs CUDA and a built out/site
 """
 
 from __future__ import annotations
