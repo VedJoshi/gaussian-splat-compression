@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 import pytest
 
@@ -48,3 +49,13 @@ def test_an_existing_site_is_not_overwritten(tmp_path):
     (tmp_path / "site" / "old").write_text("x", encoding="utf-8")
     with pytest.raises(SystemExit, match="not empty"):
         build(scenes, tmp_path / "site", sums)
+
+
+def test_every_figure_the_page_references_is_built(tmp_path):
+    scenes, sums = a_scene_dir(tmp_path)
+    build(scenes, tmp_path / "site", sums)
+    site = tmp_path / "site"
+    sources = re.findall(r'src="(figures/[^"]+)"', (site / "index.html").read_text(encoding="utf-8"))
+    assert "figures/curve.svg" in sources
+    assert len(set(sources)) == 10  # the curve and nine stills; cards reuse the compressed stills
+    assert [s for s in sources if not (site / s).is_file()] == []

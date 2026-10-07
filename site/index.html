@@ -4,39 +4,207 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Compressed Gaussian Splats</title>
+<title>Compressing 3D Gaussian Splats</title>
+<meta name="description" content="A 236 MB 3D Gaussian splat scene compressed to 12 MB and rendered live in the browser. By Ved Joshi.">
 <style>
-  body { margin: 0 auto; max-width: 42rem; padding: 2rem 1rem; font: 16px/1.5 system-ui, sans-serif; background: #111; color: #ddd; }
-  a { color: #8cf; }
-  li { margin: 0.5rem 0; }
-  small { color: #999; }
+  :root {
+    color-scheme: dark;
+    --bg: #1a1a19; --surface: #232322; --text: #ececea; --muted: #a8a7a0; --line: #3a3a38;
+    --link: #8ab8f0; --accent: #3987e5; --deployed: #199e70;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 52rem; margin: 0 auto; padding: 2.5rem 16px 4rem; }
+  a { color: var(--link); }
+  h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15; margin: 0 0 0.5rem; }
+  h2 { font-size: 1.35rem; margin: 3rem 0 0.75rem; }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  .byline { color: var(--muted); margin: 0 0 1.25rem; }
+  .lede { font-size: 1.15rem; }
+  .note, figcaption, small { color: var(--muted); font-size: 0.9rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 1.5rem 0 0.5rem; }
+  .card { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; color: inherit; text-decoration: none; }
+  .card:hover, .card:focus-visible { border-color: var(--accent); }
+  .card img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; }
+  .card div { padding: 0.6rem 0.8rem 0.8rem; }
+  .card strong { display: block; font-size: 1.05rem; }
+  .card span { color: var(--muted); font-size: 0.9rem; }
+  .steps { list-style: none; padding: 0; margin: 1rem 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; counter-reset: step; }
+  .steps li { background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.92rem; counter-increment: step; }
+  .steps li:last-child { border-top-color: var(--deployed); }
+  .steps strong { display: block; font-size: 1rem; }
+  .steps strong::before { content: counter(step) ". "; color: var(--muted); }
+  .steps em { display: block; color: var(--muted); font-style: normal; margin-top: 0.35rem; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  th, td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.deployed td { font-weight: 600; }
+  figure { margin: 1.5rem 0; }
+  figure > img { display: block; max-width: 100%; height: auto; }
+  .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.5rem 0 1.5rem; }
+  .compare figure { margin: 0; }
+  .compare img { display: block; width: 100%; height: auto; border-radius: 6px; }
+  .compare figcaption { margin-top: 0.25rem; }
+  @media (max-width: 40rem) {
+    .compare { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 85%; overflow-x: auto; scroll-snap-type: x mandatory; }
+    .compare figure { scroll-snap-align: start; }
+  }
+  dt { font-weight: 600; margin-top: 1rem; }
+  dd { margin: 0.25rem 0 0; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+  footer p { margin: 0.5rem 0; }
 </style>
 </head>
 <body>
-<h1>Compressed Gaussian Splats</h1>
-<p>Each scene is one <code>.splatc</code> file of about 12 MB, rendered in the browser with full view-dependent colour.
-Drag to orbit, arrow keys to move.</p>
-<ul id="scenes"></ul>
-<p><a href="https://github.com/VedJoshi/gaussian-splat-compression">Source, method and measurements</a></p>
-<p><small>
-Truck and Train: <a href="https://www.tanksandtemples.org/">Tanks and Temples</a> (Knapitsch et al. 2017), CC BY 4.0, non-commercial use only.
-Playroom: <a href="http://visual.cs.ucl.ac.uk/pubs/deepblending/">Deep Blending</a> (Hedman et al. 2018), shown with attribution; no licence is stated for it.
-Viewer forked from <a href="https://github.com/antimatter15/splat">antimatter15/splat</a> (MIT).
-</small></p>
+<main>
+<header>
+  <h1>Compressing 3D Gaussian Splats for the Web</h1>
+  <p class="byline">Ved Joshi · <a href="https://github.com/VedJoshi/gaussian-splat-compression">Source on GitHub</a></p>
+  <p class="lede">A trained 3D scene is 236 MB. This pipeline gets it to 12 MB, 19 times smaller, for a 0.14 dB drop in held-out PSNR, and renders it live in your browser.</p>
+</header>
+
+<section aria-label="Scenes">
+  <div class="cards">
+    <a class="card" data-scene="truck" href="viewer/index.html?url=../scenes/truck.splatc">
+      <img src="figures/truck-compressed.jpg" width="979" height="546" alt="The Truck scene rendered by this site's viewer">
+      <div><strong>Truck</strong><span>12.3 MB · 19.22× smaller · −0.142&nbsp;dB</span></div>
+    </a>
+    <a class="card" data-scene="train" href="viewer/index.html?url=../scenes/train.splatc">
+      <img src="figures/train-compressed.jpg" width="980" height="545" alt="The Train scene rendered by this site's viewer">
+      <div><strong>Train</strong><span>12.3 MB · 19.14× smaller · −0.191&nbsp;dB</span></div>
+    </a>
+    <a class="card" data-scene="playroom" href="viewer/index.html?url=../scenes/playroom.splatc">
+      <img src="figures/playroom-compressed.jpg" width="1000" height="658" alt="The Playroom scene rendered by this site's viewer">
+      <div><strong>Playroom</strong><span>10.3 MB · 19.33× smaller · −0.004&nbsp;dB</span></div>
+    </a>
+  </div>
+  <p class="note">Each scene downloads 10–12 MB. Drag to orbit, scroll or pinch to zoom, arrow keys to move. Needs WebGL2.</p>
+</section>
+
+<section>
+  <h2>The problem</h2>
+  <p>3D Gaussian splatting represents a scene as about a million semi-transparent, coloured 3D Gaussians fitted to photographs. It renders in real time and looks photographic, but each Gaussian stores 59 floats: position, scale, rotation, opacity, and 48 spherical-harmonic coefficients that make its colour change with viewing angle. That is 236 bytes per Gaussian and 236 MB per scene, and 76% of it is the view-dependent colour. Nobody waits for 236 MB to load a web page.</p>
+</section>
+
+<section>
+  <h2>The pipeline</h2>
+  <ol class="steps">
+    <li><strong>Train</strong>gsplat with the MCMC strategy, capped at one million Gaussians.<em>236 MB PLY</em></li>
+    <li><strong>Prune</strong>Rank each Gaussian by how much it contributes to the training-view pixels; drop the lowest 20%.<em>−20% of Gaussians, −0.009 dB</em></li>
+    <li><strong>Quantise colour</strong>Replace each Gaussian's 45 higher-order colour coefficients with an index into a 4,096-entry K-means codebook.<em>The largest single saving</em></li>
+    <li><strong>Pack</strong>Positions to 16 bits in log space, the rest to 8 bits, into one <code>.splatc</code> file: a block per attribute, each DEFLATE or PNG, Morton-ordered, checksummed.<em>12.3 MB</em></li>
+    <li><strong>Render</strong>WebGL2: decode in a worker, exact depth sort, full degree-3 colour on the GPU.<em>36–39 dB against gsplat</em></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Results</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Scene</th><th>Raw PLY</th><th><code>.splatc</code></th><th>Ratio</th><th>PSNR change</th><th>Viewer vs gsplat</th><th>First frame, live</th></tr></thead>
+    <tbody>
+      <tr><td>Truck</td><td>236.0 MB</td><td>12.3 MB</td><td>19.22×</td><td>−0.142 dB</td><td>36.0–36.9 dB</td><td>2.1 s</td></tr>
+      <tr><td>Train</td><td>236.0 MB</td><td>12.3 MB</td><td>19.14×</td><td>−0.191 dB</td><td>37.6–39.4 dB</td><td>1.2 s</td></tr>
+      <tr><td>Playroom</td><td>198.2 MB</td><td>10.3 MB</td><td>19.33×</td><td>−0.004 dB</td><td>31.8–34.4 dB</td><td>1.0 s</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">PSNR is measured on held-out photos the model never trained on (every eighth image). "Viewer vs gsplat" compares this site's renderer with the reference renderer on the same decoded scene. First frame is the median of five fresh loads of the live site; frames then run at the display's refresh rate (75 Hz on an RTX 4050 laptop).</p>
+</section>
+
+<section>
+  <h2>Quality against size (Truck)</h2>
+  <figure>
+    <img src="figures/curve.svg" width="700" height="420" loading="lazy" alt="Held-out PSNR against file size for the Truck scene. The deployed .splatc sits at 12.3 MB and 24.26 dB, against 236 MB and 24.40 dB for the raw PLY.">
+    <figcaption>Up and to the left is better. gsplat's own PNG-based compression already reaches 16.2 MB; a 4,096-entry colour codebook takes it to 14.5 MB, and pruning a fifth of the Gaussians takes it to 12 MB at almost no further cost. SPLAT, the common web format, is larger and loses more quality because it drops view-dependent colour.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Side by side</h2>
+  <p>A held-out photo, the reference renderer on the uncompressed scene, and this site's viewer on the 12 MB file. PSNR is against the photo, for this one view.</p>
+
+  <h3>Truck</h3>
+  <div class="compare">
+    <figure><img src="figures/truck-photo.jpg" width="979" height="546" loading="lazy" alt="Held-out photo of the truck"><figcaption>Photo</figcaption></figure>
+    <figure><img src="figures/truck-original.jpg" width="979" height="546" loading="lazy" alt="gsplat render of the uncompressed truck scene"><figcaption>Uncompressed, 236 MB · 24.27 dB</figcaption></figure>
+    <figure><img src="figures/truck-compressed.jpg" width="979" height="546" loading="lazy" alt="This site's viewer rendering the compressed truck scene"><figcaption>This site, 12.3 MB · 24.16 dB</figcaption></figure>
+  </div>
+
+  <h3>Train</h3>
+  <div class="compare">
+    <figure><img src="figures/train-photo.jpg" width="980" height="545" loading="lazy" alt="Held-out photo of the train"><figcaption>Photo</figcaption></figure>
+    <figure><img src="figures/train-original.jpg" width="980" height="545" loading="lazy" alt="gsplat render of the uncompressed train scene"><figcaption>Uncompressed, 236 MB · 20.28 dB</figcaption></figure>
+    <figure><img src="figures/train-compressed.jpg" width="980" height="545" loading="lazy" alt="This site's viewer rendering the compressed train scene"><figcaption>This site, 12.3 MB · 20.23 dB</figcaption></figure>
+  </div>
+
+  <h3>Playroom</h3>
+  <div class="compare">
+    <figure><img src="figures/playroom-photo.jpg" width="1000" height="658" loading="lazy" alt="Held-out photo of the playroom"><figcaption>Photo</figcaption></figure>
+    <figure><img src="figures/playroom-original.jpg" width="1000" height="658" loading="lazy" alt="gsplat render of the uncompressed playroom scene"><figcaption>Uncompressed, 198 MB · 30.05 dB</figcaption></figure>
+    <figure><img src="figures/playroom-compressed.jpg" width="1000" height="658" loading="lazy" alt="This site's viewer rendering the compressed playroom scene"><figcaption>This site, 10.3 MB · 27.57 dB</figcaption></figure>
+  </div>
+  <p class="note">At this view the viewer scores about 2.5 dB below the reference renderer, and the white walls pick up a pink speckle. The reference renderer on the same 10.3 MB file matches the uncompressed score, so the gap comes from this site's viewer, not from compression; it is the colour shift listed under limitations.</p>
+</section>
+
+<section>
+  <h2>What each stage contributes (Truck)</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Stage</th><th>Size</th><th>Ratio</th><th>PSNR</th></tr></thead>
+    <tbody>
+      <tr><td>Raw PLY</td><td>236.00 MB</td><td>1.00×</td><td>24.400</td></tr>
+      <tr><td>PngCompression (existing baseline)</td><td>16.21 MB</td><td>14.56×</td><td>24.314</td></tr>
+      <tr><td>SH codebook, 4,096 entries</td><td>14.53 MB</td><td>16.25×</td><td>24.251</td></tr>
+      <tr><td>+ 80% contribution pruning</td><td>11.92 MB</td><td>19.80×</td><td>24.263</td></tr>
+      <tr class="deployed"><td><code>.splatc</code> container (deployed)</td><td>12.28 MB</td><td>19.22×</td><td>24.258</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">The middle rows use gsplat's PNG-based storage; the last row is the same scene in this project's single-file format, which the browser can stream.</p>
+</section>
+
+<section>
+  <h2>What didn't work</h2>
+  <dl>
+    <dt>The container is 3% larger than the format it replaces.</dt>
+    <dd>12.28 MB against 11.92 MB for the same pruned, quantised scene in PNG-based storage. It buys one file, per-block checksums and a browser decoder, but the size gap is real. Per-attribute PNG grid layout is the likely cause and is not yet measured on its own.</dd>
+    <dt>Contribution pruning did not beat plain opacity pruning.</dt>
+    <dd>Ranking Gaussians by their summed blending weight over every training pixel was meant to beat ranking by opacity. At 80% kept, opacity matched or beat it on SSIM and LPIPS in all three scenes.</dd>
+    <dt>Three bugs that only measurement found.</dt>
+    <dd>Quantising positions on their raw range dropped Truck to 13.58 dB, because a few stray Gaussians stretched the range; a log transform fixed it. Culling Gaussians by their centre dropped one view to 26.7 dB; gsplat's bounding-box rules fixed it. Sorting depth into 16-bit buckets drew a stack of sky Gaussians out of order on Train (29.90 dB); an exact float radix sort fixed it.</dd>
+  </dl>
+</section>
+
+<section>
+  <h2>Limitations and next steps</h2>
+  <ul>
+    <li>The viewer's colours drift from gsplat's: up to 6.9 levels darker in Playroom's blue channel, and a pink speckle on Playroom's white surfaces. The cause is not yet found.</li>
+    <li>Very large Gaussians are clamped at 1024 pixels on screen.</li>
+    <li>Going from phone photos of your own room to a compressed scene in one command is the next step; the scenes here come from public datasets.</li>
+  </ul>
+</section>
+
+<footer>
+  <p><a href="https://github.com/VedJoshi/gaussian-splat-compression">Source</a> · <a href="https://github.com/VedJoshi/gaussian-splat-compression/blob/master/docs/EVALUATION.md">Full measurements and method</a></p>
+  <p><small>
+  Truck and Train: <a href="https://www.tanksandtemples.org/">Tanks and Temples</a> (Knapitsch et al. 2017), CC BY 4.0, non-commercial use only.
+  Playroom: <a href="http://visual.cs.ucl.ac.uk/pubs/deepblending/">Deep Blending</a> (Hedman et al. 2018), shown with attribution; no licence is stated for it.
+  Viewer forked from <a href="https://github.com/antimatter15/splat">antimatter15/splat</a> (MIT).
+  </small></p>
+</footer>
+</main>
 <script>
-// A held-out camera per scene (view 0; playroom's view 0 faces a bare wall, so view 12).
-// No orbit: upstream's fixed 2.5 and 6 unit swing leaves every scene's captured region.
-const scenes = {
+// Held-out camera per scene (view 0; playroom view 12, as view 0 faces a bare wall); no orbit, since upstream's fixed swing leaves the captured region.
+const cameras = {
   truck: { view: [0.421586, -0.029541, 0.906307, 0.0, -0.904497, -0.084704, 0.417983, 0.0, 0.064421, -0.995968, -0.06243, 0.0, -0.338548, -0.001522, 1.078865, 1.0], fx: 581.925, fy: 578.67 },
   train: { view: [0.87383, -0.374707, -0.309865, 0.0, 0.39858, 0.187011, 0.897864, 0.0, -0.278488, -0.908087, 0.312767, 0.0, 0.175485, 0.177794, 1.427035, 1.0], fx: 580.09, fy: 582.33 },
   playroom: { view: [-0.953439, -0.148796, 0.262324, 0.0, -0.248241, 0.881142, -0.402448, 0.0, -0.171262, -0.44883, -0.877053, 0.0, 0.35565, 0.659598, 0.72995, 1.0], fx: 1040.007, fy: 1040.193 },
 };
-const list = document.getElementById("scenes");
-for (const [name, camera] of Object.entries(scenes)) {
-  const link = document.createElement("a");
-  link.href = `viewer/index.html?url=../scenes/${name}.splatc&camera=${encodeURIComponent(JSON.stringify(camera))}`;
-  link.textContent = name[0].toUpperCase() + name.slice(1);
-  list.appendChild(document.createElement("li")).appendChild(link);
+for (const card of document.querySelectorAll("a.card")) {
+  card.setAttribute("href", card.getAttribute("href") + `&camera=${encodeURIComponent(JSON.stringify(cameras[card.dataset.scene]))}`);
 }
 </script>
 </body>
